@@ -52,8 +52,8 @@ MODE = "single"
 # --- OPTION A: Single file path ---
 # For SPARK: e.g., "data/MILL_01/power.i1/2023.csv.xz"
 # For quick test: "data/dataset.csv"
-DATA_PATH   = "data/2024_P_total.csv.xz"
-MACHINE_NAME = "TEC_Chiron800 CNC Mill"  # Give it a name for the report
+DATA_PATH   = "data/2024_P_total_PickAndPlace.csv.xz"
+MACHINE_NAME = "EPI_PickAndPlace Robot" # Give it a name for the report
 OUTPUT_PATH = "outputs/plots"
 
 # --- OPTION B: Multi-machine SPARK root folder ---
