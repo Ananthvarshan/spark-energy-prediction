@@ -54,7 +54,7 @@ MODE = "single"
 # For quick test: "data/dataset.csv"
 DATA_PATH   = "data/2024_P_total_PickAndPlace.csv.xz"
 MACHINE_NAME = "EPI_PickAndPlace Robot" # Give it a name for the report
-OUTPUT_PATH = "outputs/plots"
+OUTPUT_PATH = "outputs/plots_gmm_epi_pick"
 
 # --- OPTION B: Multi-machine SPARK root folder ---
 # Set this to where you extracted the full SPARK dataset

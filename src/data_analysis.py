@@ -3,7 +3,7 @@ import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
 import numpy as np
 import os
-from sklearn.cluster import KMeans
+from sklearn.mixture import GaussianMixture
 from sklearn.metrics import silhouette_score
 
 
@@ -77,22 +77,22 @@ def load_and_prepare_data(path):
 
 
 # ============================================================
-# AI-DRIVEN STATE DETECTION — 1D K-MEANS + SILHOUETTE SCORE
+# AI-DRIVEN STATE DETECTION — UNIFIED GMM + HMM ARCHITECTURE
 # ============================================================
-# Instead of fixed 25th/75th percentile cut points, this version
-# lets unsupervised K-Means discover how many genuinely distinct
-# active power levels exist for THIS machine, and where their
-# boundaries fall. The Silhouette Score is used to automatically
-# pick the best number of clusters (k = 2, 3, or 4) rather than
-# assuming every machine has exactly 3 active states.
+# Replaces the previous KMeans approach. Key improvements:
 #
-#  OFF        → power ≤ 5W (noise floor, machine fully off)
-#  STANDBY    → lowest-power active cluster
-#  IDLE       → middle active cluster(s)
-#  WORKING    → high-power active cluster
-#  PEAK_LOAD  → only appears if k=4 is selected — a 4th, higher
-#               cluster above WORKING (e.g. cutting + coolant +
-#               chip conveyor all running at once)
+#  • GMM (Gaussian Mixture Model) models each cluster as its own
+#    Gaussian, so the narrow OFF cluster (0–5 W, tiny variance)
+#    and the wide WORKING cluster (large variance) are separated
+#    cleanly WITHOUT a manual power > 5 W pre-filter.
+#  • The ENTIRE dataset (including OFF state) is fed in one sweep.
+#  • Silhouette Score selects the best k ∈ {2, 3, 4} automatically.
+#  • Viterbi HMM smoothing removes high-frequency flicker noise.
+#
+#  State mapping (sorted by GMM mean, low → high):
+#   k=2 → OFF, WORKING
+#   k=3 → OFF, STANDBY, WORKING
+#   k=4 → OFF, STANDBY, WORKING, PEAK_LOAD
 # ============================================================
 
 # ============================================================
@@ -153,55 +153,51 @@ def viterbi_hmm_smoothing(observed_labels, num_states):
 
 def classify_machine_states(df):
     max_power  = df['power'].max()
-    zero_count = (df['power'] <= 5).sum()
-    zero_pct   = zero_count / len(df) * 100
+    total_count = len(df)
 
-    # 1. Filter out the OFF state
-    on_mask  = df['power'] > 5
-    on_data  = df[on_mask].copy()
-    on_count = len(on_data)
+    print(f"   Total readings : {total_count:,}")
+    print(f"   Max power      : {max_power:.1f} W")
 
-    print(f"   OFF readings  : {zero_count:,} ({zero_pct:.1f}%) — machine fully off")
-    print(f"   ON readings   : {on_count:,} ({100-zero_pct:.1f}%) — machine powered on")
-    print(f"   Max power     : {max_power:.1f} W")
+    # ----------------------------------------------------------------
+    # STEP 2: Feed the ENTIRE dataset (including OFF state) into GMM.
+    # GMM handles heterogeneous variances natively, so the narrow
+    # OFF cluster (0–5 W) and the wide WORKING cluster co-exist
+    # without the manual on_mask pre-filter that K-Means required.
+    # ----------------------------------------------------------------
+    X = df['power'].values.reshape(-1, 1)
 
-    # If the machine is always OFF or only has a tiny blip of data
-    if on_count < 100:
-        df = df.copy()
-        df['state'] = 'OFF'
-        return df
+    print("   Running GMM clustering to detect states (incl. OFF)...")
 
-    # 2. Reshape data for scikit-learn (requires a 2D array)
-    X = on_data['power'].values.reshape(-1, 1)
-
-    print("   Running K-Means clustering to detect active states...")
-
-    # 3. Train models for k = 2, 3, 4 and score each with Silhouette
+    # Train GMM for k = 2, 3, 4; n_init=3 gives stable convergence
     k_values = [2, 3, 4]
-    models = {k: KMeans(n_clusters=k, random_state=42, n_init=10).fit(X) for k in k_values}
-
-    # sample_size caps the silhouette calculation so it doesn't choke
-    # on multi-million-row machine files
-    scores = {
-        k: silhouette_score(X, model.labels_, sample_size=10000, random_state=42)
-        for k, model in models.items()
+    models = {
+        k: GaussianMixture(n_components=k, random_state=42, n_init=3).fit(X)
+        for k in k_values
     }
 
-    # 4. Select the best k
+    # Predict raw integer labels from each fitted GMM
+    raw_predictions = {k: model.predict(X) for k, model in models.items()}
+
+    # sample_size caps silhouette so it doesn't choke on multi-million-row files
+    scores = {
+        k: silhouette_score(X, raw_predictions[k], sample_size=10000, random_state=42)
+        for k in k_values
+    }
+
+    # Select the best k
     best_k     = max(scores, key=scores.get)
     best_model = models[best_k]
     best_score = scores[best_k]
+    raw_labels = raw_predictions[best_k]
 
-    print(f"   Scores -> k=2: {scores[2]:.3f} | k=3: {scores[3]:.3f} | k=4: {scores[4]:.3f}")
-    print(f"   Selected optimal states: {best_k} active states (Score: {best_score:.3f})")
+    print(f"   Scores → k=2: {scores[2]:.3f} | k=3: {scores[3]:.3f} | k=4: {scores[4]:.3f}")
+    print(f"   Selected optimal clusters: {best_k}  (Silhouette: {best_score:.3f})")
 
-    # 5a. Smooth the raw K-Means labels with a Viterbi HMM pass.
-    # This finds the most probable underlying state SEQUENCE,
-    # eliminating physically-impossible rapid flickering between
-    # states from one 5-second reading to the next.
-    raw_labels = best_model.labels_
-
-    print(f"   Running Viterbi HMM smoothing on {len(raw_labels):,} ON-time labels...")
+    # ----------------------------------------------------------------
+    # STEP 3: HMM smoothing — unchanged, just now operates on the
+    # full-dataset GMM labels instead of on-only K-Means labels.
+    # ----------------------------------------------------------------
+    print(f"   Running Viterbi HMM smoothing on {len(raw_labels):,} labels...")
     if len(raw_labels) > 2_000_000:
         est_seconds = len(raw_labels) / 95_000
         print(f"   ⚠️  Large dataset — Viterbi pass benchmarked at ~95,000 rows/sec")
@@ -212,35 +208,46 @@ def classify_machine_states(df):
     num_changed = int(np.sum(raw_labels != smoothed_labels))
     pct_changed = num_changed / len(raw_labels) * 100
     print(f"   Viterbi smoothing changed {num_changed:,} of {len(raw_labels):,} "
-          f"labels ({pct_changed:.2f}%) — these were high-frequency flickers")
-    print(f"   between states that the HMM judged to be sensor noise, not real")
-    print(f"   transitions.")
+          f"labels ({pct_changed:.2f}%) — high-frequency flickers judged as sensor noise.")
 
-    # 5b. Map cluster centers (lowest → highest wattage) to physical states.
-    # Centers are indexed by K-Means cluster id, which is what the
-    # smoothed labels are expressed in too, so the same mapping applies.
-    centers   = best_model.cluster_centers_.flatten()
-    sorted_idx = np.argsort(centers)
+    # ----------------------------------------------------------------
+    # STEP 4: Map GMM cluster IDs → physical state names.
+    # Sort clusters by their GMM means (lowest → highest wattage).
+    # The lowest mean is ALWAYS the OFF cluster because GMM was given
+    # the full dataset — no manual threshold needed.
+    # ----------------------------------------------------------------
+    means      = best_model.means_.flatten()
+    sorted_idx = np.argsort(means)          # cluster ids ordered low→high
 
-    state_names = {}
     if best_k == 2:
-        state_names = {sorted_idx[0]: 'STANDBY', sorted_idx[1]: 'WORKING'}
+        state_names = {
+            sorted_idx[0]: 'OFF',
+            sorted_idx[1]: 'WORKING',
+        }
     elif best_k == 3:
-        state_names = {sorted_idx[0]: 'STANDBY', sorted_idx[1]: 'IDLE', sorted_idx[2]: 'WORKING'}
+        state_names = {
+            sorted_idx[0]: 'OFF',
+            sorted_idx[1]: 'STANDBY',
+            sorted_idx[2]: 'WORKING',
+        }
     elif best_k == 4:
-        state_names = {sorted_idx[0]: 'STANDBY', sorted_idx[1]: 'IDLE',
-                        sorted_idx[2]: 'WORKING', sorted_idx[3]: 'PEAK_LOAD'}
+        state_names = {
+            sorted_idx[0]: 'OFF',
+            sorted_idx[1]: 'STANDBY',
+            sorted_idx[2]: 'WORKING',
+            sorted_idx[3]: 'PEAK_LOAD',
+        }
 
-    print("   Discovered power centers:")
+    print("   Discovered GMM power centres:")
     for cluster_id, name in state_names.items():
-        print(f"     {name}: ~{centers[cluster_id]:.0f} W")
+        std = np.sqrt(best_model.covariances_.flatten()[cluster_id])
+        print(f"     {name:<12}: ~{means[cluster_id]:7.1f} W  (σ = {std:.1f} W)")
 
-    # 6. Apply the labels back to the dataframe (using SMOOTHED labels)
+    # ----------------------------------------------------------------
+    # STEP 5: Apply smoothed labels directly — no on_mask needed.
+    # ----------------------------------------------------------------
     df = df.copy()
-    df['state'] = 'OFF'
-
-    on_labels = [state_names[label] for label in smoothed_labels]
-    df.loc[on_mask, 'state'] = on_labels
+    df['state'] = [state_names[label] for label in smoothed_labels]
 
     return df
 
