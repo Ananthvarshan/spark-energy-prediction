@@ -168,8 +168,8 @@ def classify_machine_states(df):
 
     print("   Running GMM clustering to detect states (incl. OFF)...")
 
-    # Train GMM for k = 2, 3, 4; n_init=3 gives stable convergence
-    k_values = [2, 3, 4]
+    # Train GMM for k = 3 ONLY; n_init=3 gives stable convergence
+    k_values = [3]
     models = {
         k: GaussianMixture(n_components=k, random_state=42, n_init=3).fit(X)
         for k in k_values
@@ -185,13 +185,13 @@ def classify_machine_states(df):
     }
 
     # Select the best k
-    best_k     = max(scores, key=scores.get)
+    best_k     = 3
     best_model = models[best_k]
     best_score = scores[best_k]
     raw_labels = raw_predictions[best_k]
 
-    print(f"   Scores → k=2: {scores[2]:.3f} | k=3: {scores[3]:.3f} | k=4: {scores[4]:.3f}")
-    print(f"   Selected optimal clusters: {best_k}  (Silhouette: {best_score:.3f})")
+    print(f"   Scores -> k=3: {scores[3]:.3f}")
+    print(f"   Fixed optimal clusters to: {best_k}  (Silhouette: {best_score:.3f})")
 
     # ----------------------------------------------------------------
     # STEP 3: HMM smoothing — unchanged, just now operates on the

@@ -56,8 +56,8 @@ from src.data_analysis import load_and_prepare_data
 # ============================================================
 # CONFIGURATION  — change these two lines
 # ============================================================
-DATA_PATH    = "data/2024_P_total.csv.xz"      # your data file
-MACHINE_NAME = "CNC Machine"                   # label for plots
+DATA_PATH    = "data/2024_AC_ActivePower.csv.xz"      # your data file
+MACHINE_NAME = "Solar Panel"                   # label for plots
 OUTPUT_DIR   = "outputs/gmm_validation"
 K_RANGE      = [2, 3, 4]                       # candidate cluster counts
 # ============================================================
