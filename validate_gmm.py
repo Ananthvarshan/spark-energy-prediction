@@ -1,103 +1,141 @@
 """
 ============================================================
-GMM VALIDATION HARNESS  —  validate_gmm.py
+GMM VALIDATION HARNESS -- validate_gmm.py
 ============================================================
 
 PURPOSE
 -------
-Verify that the Gaussian Mixture Model (GMM) in data_analysis.py
-is correctly splitting power readings into physically meaningful
-machine states BEFORE anything else in the pipeline runs.
+Validate whether a Gaussian Mixture Model (GMM) splits machine
+power readings into physically meaningful machine states before
+later pipeline stages are used.
 
-This script is 100% standalone — it imports only the data loader
-from data_analysis.py, then re-implements the GMM fitting step
-so we can inspect it at every level.
+This script is standalone. It imports only the data loader from:
+    src.data_analysis -> load_and_prepare_data
 
-SIX INDEPENDENT TESTS
-----------------------
-T1  Sanity check       — power column is non-negative and non-empty
-T2  GMM convergence    — did sklearn's EM algorithm actually converge?
-T3  k-selection        — Silhouette + BIC agree on the same k?
-T4  State separation   — are cluster means physically distinguishable (2σ)?
-T5  Visual confirmation— histogram annotated with GMM Gaussians
-T6  Soft-assignment    — is the model confident (max probability > 80%)?
+VALIDATION TESTS
+----------------
+T1  Data sanity
+T2  GMM convergence
+T3  k-selection using BIC, AIC, and Silhouette
+T4  Physical separation of adjacent states
+T5  Soft-assignment confidence
+T6  Cluster weight sanity
+
+Each test is classified by the KIND of evidence it produces:
+    FORMAL     -> BIC / AIC              (model-selection theory)
+    GEOMETRIC  -> Silhouette / separation d / intersection boundary
+    HEURISTIC  -> confidence thresholds, tiny-weight thresholds
+Heuristic results are never treated as proof; they are reported
+as engineering guidance only.
 
 HOW TO RUN
 ----------
     python validate_gmm.py
 
-Change DATA_PATH and MACHINE_NAME below to match your file.
-Results are saved to outputs/gmm_validation/
+Update DATA_PATH and MACHINE_NAME below.
+Outputs are saved to outputs/gmm_validation
 ============================================================
 """
 
 import os
 import sys
-
-# Force UTF-8 output so box-drawing chars work on Windows cp1252 terminals
-if hasattr(sys.stdout, 'reconfigure'):
-    sys.stdout.reconfigure(encoding='utf-8')
-
+import math
 import warnings
+
 warnings.filterwarnings("ignore", category=UserWarning)
 
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
-import matplotlib.patches as mpatches
+
 from scipy.stats import norm
 from sklearn.mixture import GaussianMixture
 from sklearn.metrics import silhouette_score
 
-# ── project path so we can import the data loader ────────────────────
+# Project path so we can import the data loader
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from src.data_analysis import load_and_prepare_data
 
+
 # ============================================================
-# CONFIGURATION  — change these two lines
+# CONFIGURATION
 # ============================================================
-DATA_PATH    = "data/2024_AC_ActivePower.csv.xz"      # your data file
-MACHINE_NAME = "Solar Panel"                   # label for plots
-OUTPUT_DIR   = "outputs/gmm_validation"
-K_RANGE      = [2, 3, 4]                       # candidate cluster counts
-# ============================================================
+DATA_PATH = "data/2024_P_total_VacuumSoldering.csv.xz"
+MACHINE_NAME = "VacuumSoldering"
+OUTPUT_DIR = "outputs/gmm_validation"
+K_RANGE = [2, 3, 4]
+
+MIN_ROWS = 1000
+OFF_THRESHOLD_W = 5.0
+
+# Heuristic thresholds (engineering judgement, not formal statistics)
+HIGH_CONF_THRESHOLD = 0.80
+LOW_CONF_THRESHOLD = 0.60
+HIGH_CONF_TARGET_PCT = 70.0
+LOW_CONF_MAX_PCT = 20.0
+TINY_WEIGHT_FAIL_PCT = 0.5
+SMALL_WEIGHT_WARN_PCT = 3.0
 
 
-# ────────────────────────────────────────────────────────────
-# COLOUR PALETTE  (same as data_analysis.py)
-# ────────────────────────────────────────────────────────────
+# ============================================================
+# STATE METADATA
+# ============================================================
 STATE_COLORS = {
-    'OFF':       '#555555',
-    'STANDBY':   '#f0a500',
-    'IDLE':      '#4fc3f7',
-    'WORKING':   '#66bb6a',
-    'PEAK_LOAD': '#e53935',
+    "OFF": "#555555",
+    "STANDBY": "#f0a500",
+    "IDLE": "#4fc3f7",
+    "WORKING": "#66bb6a",
 }
+
 K_TO_NAMES = {
-    2: ['OFF', 'WORKING'],
-    3: ['OFF', 'STANDBY', 'WORKING'],
-    4: ['OFF', 'STANDBY', 'WORKING', 'PEAK_LOAD'],
+    2: ["OFF", "WORKING"],
+    3: ["OFF", "STANDBY", "WORKING"],
+    4: ["OFF", "STANDBY", "IDLE", "WORKING"],
 }
 
-# ────────────────────────────────────────────────────────────
-# HELPERS
-# ────────────────────────────────────────────────────────────
 
-def _pass(msg):  print(f"   [PASS] {msg}")
-def _fail(msg):  print(f"   [FAIL] {msg}")
-def _info(msg):  print(f"   [INFO] {msg}")
-def _warn(msg):  print(f"   [WARN] {msg}")
-def _sep():      print("   " + "-" * 62)
+# ============================================================
+# PRINT HELPERS (ASCII only -- safe for Windows terminals)
+# ============================================================
+def _pass(msg):
+    print(f"   [PASS] {msg}")
 
 
-def fit_gmm(X, k, n_init=5):
-    """Fit a GMM with n_init restarts to avoid bad local optima."""
+def _fail(msg):
+    print(f"   [FAIL] {msg}")
+
+
+def _warn(msg):
+    print(f"   [WARN] {msg}")
+
+
+def _info(msg):
+    print(f"   [INFO] {msg}")
+
+
+def _sep():
+    print("   " + "-" * 68)
+
+
+# ============================================================
+# CORE HELPERS
+# ============================================================
+def fit_gmm(X, k, n_init=10, max_iter=500, random_state=42):
+    """
+    Fit a 1D Gaussian Mixture Model.
+
+    Parameters
+    ----------
+    X : ndarray of shape (n_samples, 1)
+    k : int
+        Number of mixture components
+    """
     gmm = GaussianMixture(
-        n_components  = k,
-        covariance_type = 'full',
-        n_init        = n_init,
-        max_iter      = 300,
-        random_state  = 42,
+        n_components=k,
+        covariance_type="full",
+        n_init=n_init,
+        max_iter=max_iter,
+        random_state=random_state,
     )
     gmm.fit(X)
     return gmm
@@ -105,654 +143,833 @@ def fit_gmm(X, k, n_init=5):
 
 def map_states(gmm, k):
     """
-    Sort GMM components by ascending mean and assign state names.
-    Returns dict: component_index → state_name
+    Sort components by ascending mean and assign safe semantic state names.
+
+    k=2 -> OFF, WORKING
+    k=3 -> OFF, STANDBY, WORKING
+    k=4 -> OFF, STANDBY, IDLE, WORKING
+
+    We deliberately never emit a "PEAK_LOAD" style label here -- the
+    fixed name lists above are the only vocabulary this function is
+    allowed to produce, since nothing in this script proves a distinct
+    high-power state exists beyond "WORKING".
     """
-    means      = gmm.means_.flatten()
+    means = gmm.means_.flatten()
     sorted_idx = np.argsort(means)
-    names      = K_TO_NAMES.get(k, [f"State_{i}" for i in range(k)])
+    names = K_TO_NAMES.get(k, [f"STATE_{i}" for i in range(k)])
     return {int(sorted_idx[i]): names[i] for i in range(k)}
 
 
-# ============================================================
-# TEST 1 — DATA SANITY
-# ============================================================
+def compute_model_metrics(X, gmm, labels):
+    """
+    Compute core model-comparison metrics for a fitted GMM.
 
+    Formal criteria (model-selection theory)
+    -----------------------------------------
+        BIC = -2 log(L) + p log(n)
+        AIC = -2 log(L) + 2p
+    where L is the model likelihood, p is the number of free
+    parameters, and n is the number of samples. Both are provided
+    directly by sklearn's GaussianMixture (gmm.bic / gmm.aic).
+
+    Lower BIC/AIC = better trade-off between fit and complexity.
+    BIC penalizes extra parameters more heavily than AIC, so it is
+    the primary selector used in test_k_selection().
+
+    Geometric diagnostic
+    ---------------------
+    Silhouette score measures how well-separated the discovered
+    clusters are in feature space (higher is better, range [-1, 1]).
+    It says nothing about parsimony, so it is reported alongside
+    BIC/AIC rather than replacing them.
+    """
+    n = len(X)
+    sil = np.nan
+    unique_labels = np.unique(labels)
+
+    if len(unique_labels) > 1 and len(unique_labels) < n:
+        sample_size = min(10000, n)
+        try:
+            sil = silhouette_score(X, labels, sample_size=sample_size, random_state=42)
+        except ValueError:
+            # Can happen with pathological/degenerate clusterings
+            sil = np.nan
+
+    weights = gmm.weights_.flatten()
+    return {
+        "bic": gmm.bic(X),
+        "aic": gmm.aic(X),
+        "silhouette": sil,
+        "converged": bool(gmm.converged_),
+        "n_iter": int(gmm.n_iter_),
+        "lower_bound": float(gmm.lower_bound_),
+        "min_weight": float(weights.min()),
+        "max_weight": float(weights.max()),
+    }
+
+
+def solve_gaussian_intersections(mu1, sigma1, w1, mu2, sigma2, w2):
+    """
+    Solve for x where two weighted 1D Gaussians cross:
+
+        w1 * N(x | mu1, sigma1^2) = w2 * N(x | mu2, sigma2^2)
+
+    Taking logs of both sides:
+
+        log(w1) - log(sigma1) - (x-mu1)^2 / (2*sigma1^2)
+            = log(w2) - log(sigma2) - (x-mu2)^2 / (2*sigma2^2)
+
+    Rearranging into standard quadratic form a*x^2 + b*x + c = 0:
+
+        a = 1/(2*sigma2^2) - 1/(2*sigma1^2)
+        b = mu1/sigma1^2 - mu2/sigma2^2
+        c = mu2^2/(2*sigma2^2) - mu1^2/(2*sigma1^2)
+            - log( (w2/sigma2) / (w1/sigma1) )
+
+    NOTE: the log-ratio term is SUBTRACTED here. (An earlier version
+    of this function added it by mistake, which shifted the computed
+    boundary away from its true location -- fixed below.)
+
+    Returns a sorted list of real roots (0, 1, or 2 values).
+    """
+    sigma1 = max(float(sigma1), 1e-9)
+    sigma2 = max(float(sigma2), 1e-9)
+    w1 = max(float(w1), 1e-12)
+    w2 = max(float(w2), 1e-12)
+
+    a = (1.0 / (2.0 * sigma2 ** 2)) - (1.0 / (2.0 * sigma1 ** 2))
+    b = (mu1 / (sigma1 ** 2)) - (mu2 / (sigma2 ** 2))
+    log_ratio = math.log((w2 / sigma2) / (w1 / sigma1))
+    c = (
+        (mu2 ** 2) / (2.0 * sigma2 ** 2)
+        - (mu1 ** 2) / (2.0 * sigma1 ** 2)
+        - log_ratio
+    )
+
+    roots = []
+
+    if abs(a) < 1e-12:
+        # Degenerates to a linear equation (near-equal variances)
+        if abs(b) < 1e-12:
+            return []
+        roots.append(-c / b)
+        return sorted(roots)
+
+    disc = b ** 2 - 4.0 * a * c
+    if disc < 0:
+        # No real crossing point (can happen with extreme weight/variance
+        # imbalance) -- caller falls back to reporting "None" for boundary.
+        return []
+
+    sqrt_disc = math.sqrt(max(disc, 0.0))
+    roots.append((-b + sqrt_disc) / (2.0 * a))
+    roots.append((-b - sqrt_disc) / (2.0 * a))
+    roots = sorted([float(r) for r in roots if np.isfinite(r)])
+    return roots
+
+
+def choose_between_means(roots, left_mean, right_mean):
+    """
+    Prefer an intersection root that lies between the two adjacent means,
+    since that is the physically meaningful decision boundary.
+    """
+    for r in roots:
+        if left_mean <= r <= right_mean:
+            return r
+    return None
+
+
+def analyze_adjacent_separation(gmm, state_map):
+    """
+    Analyze adjacent Gaussian components after sorting by mean.
+
+    Separation score (geometric diagnostic, effect-size style):
+
+        d = (mu_(i+1) - mu_i) / sqrt((sigma_i^2 + sigma_(i+1)^2) / 2)
+
+    Interpretation (heuristic bands, not formal thresholds):
+        d >= 2.0    : well separated
+        1.0 <= d<2.0: moderately separated
+        d < 1.0     : overlapping
+    """
+    means = gmm.means_.flatten()
+    variances = np.abs(gmm.covariances_.flatten())
+    stds = np.sqrt(variances)
+    weights = gmm.weights_.flatten()
+
+    sorted_idx = np.argsort(means)
+    rows = []
+
+    for i in range(len(sorted_idx) - 1):
+        i1 = sorted_idx[i]
+        i2 = sorted_idx[i + 1]
+
+        mu1 = float(means[i1])
+        mu2 = float(means[i2])
+        s1 = float(stds[i1])
+        s2 = float(stds[i2])
+        w1 = float(weights[i1])
+        w2 = float(weights[i2])
+
+        gap = mu2 - mu1
+        pooled_std = math.sqrt((s1 ** 2 + s2 ** 2) / 2.0) if (s1 > 0 or s2 > 0) else np.nan
+        separation_d = gap / pooled_std if (pooled_std and pooled_std > 0) else np.inf
+
+        roots = solve_gaussian_intersections(mu1, s1, w1, mu2, s2, w2)
+        boundary = choose_between_means(roots, mu1, mu2)
+
+        if separation_d >= 2.0:
+            verdict = "well separated"
+            passed = True
+        elif separation_d >= 1.0:
+            verdict = "moderately separated"
+            passed = True
+        else:
+            verdict = "overlapping"
+            passed = False
+
+        rows.append({
+            "left_state": state_map[i1],
+            "right_state": state_map[i2],
+            "mu_left": mu1,
+            "mu_right": mu2,
+            "std_left": s1,
+            "std_right": s2,
+            "gap": gap,
+            "pooled_std": pooled_std,
+            "separation_d": separation_d,
+            "boundary_w": boundary,
+            "verdict": verdict,
+            "passed": passed,
+        })
+
+    return rows
+
+
+# ============================================================
+# TEST 1 -- DATA SANITY
+# ============================================================
 def test_data_sanity(df):
-    print("\n" + "=" * 65)
-    print("  TEST 1 -- DATA SANITY CHECK")
-    print("=" * 65)
+    print("\n" + "=" * 72)
+    print("  TEST 1 -- DATA SANITY")
+    print("=" * 72)
+
+    if df is None or len(df) == 0:
+        _fail("Dataframe is empty or None.")
+        return False
+
+    if "power" not in df.columns:
+        _fail("Column 'power' not found in dataframe.")
+        return False
 
     passed = True
-
-    # 1a — Row count
     n = len(df)
-    if n < 1000:
-        _fail(f"Only {n:,} rows — too few for reliable GMM fitting (need ≥1,000)")
+
+    if n < MIN_ROWS:
+        _fail(f"Only {n:,} rows found; need at least {MIN_ROWS:,} for stable GMM fitting.")
         passed = False
     else:
-        _pass(f"{n:,} rows loaded")
+        _pass(f"{n:,} rows loaded.")
 
-    # 1b — No NaN
-    nan_count = df['power'].isna().sum()
+    non_null = df["power"].notna().sum()
+    if non_null == 0:
+        _fail("Power column is empty after loading.")
+        return False
+    else:
+        _pass(f"Power column is non-empty ({non_null:,} non-null values).")
+
+    nan_count = int(df["power"].isna().sum())
     if nan_count > 0:
-        _fail(f"{nan_count:,} NaN values in power column")
+        _fail(f"{nan_count:,} NaN values found in power column.")
         passed = False
     else:
-        _pass("No NaN values in power column")
+        _pass("No NaN values in power column.")
 
-    # 1c — All non-negative
-    neg_count = (df['power'] < 0).sum()
+    neg_count = int((df["power"] < 0).sum())
     if neg_count > 0:
-        _fail(f"{neg_count:,} negative power values (clipping issue?)")
+        _fail(f"{neg_count:,} negative power readings found.")
         passed = False
     else:
-        _pass("All power values ≥ 0")
+        _pass("All power values are non-negative.")
 
-    # 1d — Has off state (values near 0)
-    off_count = (df['power'] < 5).sum()
-    off_pct   = off_count / n * 100
+    off_count = int((df["power"] < OFF_THRESHOLD_W).sum())
+    on_count = int((df["power"] > OFF_THRESHOLD_W).sum())
+    off_pct = off_count / n * 100.0
+    on_pct = on_count / n * 100.0
+
     if off_count == 0:
-        _warn("No readings < 5W — machine may never be fully OFF. "
-              "GMM will still run but OFF state may not exist.")
+        _warn(f"No readings below {OFF_THRESHOLD_W:.1f} W; a true OFF state may not exist.")
     else:
-        _pass(f"OFF-state readings (<5W): {off_count:,}  ({off_pct:.1f}%)")
+        _pass(f"OFF-like readings (<{OFF_THRESHOLD_W:.1f} W): {off_count:,} ({off_pct:.1f}%).")
 
-    # 1e — Has active state
-    on_count = (df['power'] > 5).sum()
     if on_count < 100:
-        _fail("Fewer than 100 ON-state readings — not enough active data")
+        _fail(f"Only {on_count:,} readings above {OFF_THRESHOLD_W:.1f} W; too few active readings.")
         passed = False
     else:
-        _pass(f"ON-state readings  (>5W): {on_count:,}")
+        _pass(f"ON-like readings (>{OFF_THRESHOLD_W:.1f} W): {on_count:,} ({on_pct:.1f}%).")
 
-    # 1f — Power range
-    _info(f"Power range: {df['power'].min():.2f} W → {df['power'].max():.2f} W")
-    _info(f"Power mean : {df['power'].mean():.2f} W  |  std: {df['power'].std():.2f} W")
+    _info(f"Power range: {df['power'].min():.2f} W to {df['power'].max():.2f} W")
+    _info(f"Power mean : {df['power'].mean():.2f} W")
+    _info(f"Power std  : {df['power'].std():.2f} W")
 
     return passed
 
 
 # ============================================================
-# TEST 2 — GMM CONVERGENCE
+# TEST 2 -- GMM CONVERGENCE
 # ============================================================
-
-def test_gmm_convergence(X, models):
-    print("\n" + "=" * 65)
-    print("  TEST 2 -- GMM CONVERGENCE CHECK")
-    print("=" * 65)
-    _info("Each GMM is run with 5 random restarts (n_init=5) to avoid bad local optima.")
+def test_gmm_convergence(models):
+    print("\n" + "=" * 72)
+    print("  TEST 2 -- GMM CONVERGENCE")
+    print("=" * 72)
+    _info("Each model is fit with multiple random restarts (n_init).")
+    _info("This checks whether EM actually converged for each candidate k.")
     _sep()
 
     all_converged = True
     for k, gmm in models.items():
         if gmm.converged_:
-            _pass(f"k={k} — converged in {gmm.n_iter_} EM iterations")
+            _pass(f"k={k}: converged in {gmm.n_iter_} iterations; lower bound={gmm.lower_bound_:.6f}")
         else:
-            _fail(f"k={k} — DID NOT CONVERGE after {gmm.n_iter_} iterations. "
-                  "Increase max_iter or check for degenerate data.")
+            _fail(f"k={k}: did NOT converge after {gmm.n_iter_} iterations.")
             all_converged = False
 
     return all_converged
 
 
 # ============================================================
-# TEST 3 — k SELECTION: SILHOUETTE + BIC
+# TEST 3 -- K SELECTION
 # ============================================================
-
-def test_k_selection(X, models, labels):
-    print("\n" + "=" * 65)
-    print("  TEST 3 -- k SELECTION  (Silhouette + BIC)")
-    print("=" * 65)
-    _info("Silhouette (geometric) and BIC (probabilistic) are two independent")
-    _info("methods. When both agree on the same k -> strong evidence the split is real.")
+def test_k_selection(X, models, labels_by_k, k_range=None):
+    print("\n" + "=" * 72)
+    print("  TEST 3 -- K SELECTION")
+    print("=" * 72)
+    _info("Formal criteria (model-selection theory):")
+    _info("  BIC = -2 log(L) + p log(n)")
+    _info("  AIC = -2 log(L) + 2p")
+    _info("Lower BIC/AIC is better. Higher silhouette is better.")
+    _info("BIC is used as the primary selector because it penalizes extra")
+    _info("complexity more strongly than AIC.")
     _sep()
 
-    sil_scores = {}
-    bic_scores = {}
-    aic_scores = {}
+    if k_range is None:
+        k_range = sorted(models.keys())
 
-    for k in K_RANGE:
-        gmm = models[k]
-        lbl = labels[k]
-        sil = silhouette_score(X, lbl, sample_size=min(10_000, len(X)), random_state=42)
-        sil_scores[k] = sil
-        bic_scores[k] = gmm.bic(X)
-        aic_scores[k] = gmm.aic(X)
+    metrics_by_k = {}
+    for k in k_range:
+        metrics_by_k[k] = compute_model_metrics(X, models[k], labels_by_k[k])
 
-    print(f"\n   {'k':<6} {'Silhouette':>12} {'BIC':>18} {'AIC':>18}")
-    print(f"   {'':->6} {'':->12} {'':->18} {'':->18}")
-    for k in K_RANGE:
-        sil_marker = " <- best" if k == max(sil_scores, key=sil_scores.get) else ""
-        bic_marker = " <- best" if k == min(bic_scores, key=bic_scores.get) else ""
-        print(f"   {k:<6} {sil_scores[k]:>12.4f}{sil_marker:<7} "
-              f"{bic_scores[k]:>18,.1f}{bic_marker}")
+    print(
+        f"\n   {'k':<4} {'Conv':<6} {'Iter':>6} {'Silhouette':>12} "
+        f"{'BIC':>16} {'AIC':>16} {'MinWt%':>10} {'MaxWt%':>10}"
+    )
+    print("   " + "-" * 90)
 
-    sil_best = max(sil_scores, key=sil_scores.get)
-    bic_best = min(bic_scores, key=bic_scores.get)
+    for k in k_range:
+        m = metrics_by_k[k]
+        sil_text = f"{m['silhouette']:.4f}" if np.isfinite(m["silhouette"]) else "nan"
+        print(
+            f"   {k:<4} {str(m['converged']):<6} {m['n_iter']:>6} {sil_text:>12} "
+            f"{m['bic']:>16,.1f} {m['aic']:>16,.1f} "
+            f"{100*m['min_weight']:>9.2f} {100*m['max_weight']:>9.2f}"
+        )
+
+    bic_best = min(k_range, key=lambda k: metrics_by_k[k]["bic"])
+    aic_best = min(k_range, key=lambda k: metrics_by_k[k]["aic"])
+
+    valid_sil = {k: metrics_by_k[k]["silhouette"] for k in k_range if np.isfinite(metrics_by_k[k]["silhouette"])}
+    sil_best = max(valid_sil, key=valid_sil.get) if valid_sil else None
 
     print()
-    _info(f"Silhouette selects : k = {sil_best}")
-    _info(f"BIC selects        : k = {bic_best}")
+    _info(f"BIC selects k = {bic_best}")
+    _info(f"AIC selects k = {aic_best}")
+    _info(f"Silhouette selects k = {sil_best}")
 
-    if sil_best == bic_best:
-        _pass(f"Both Silhouette AND BIC agree -> k = {sil_best}  (strong confirmation)")
-        agreed_k = sil_best
+    if sil_best is not None and sil_best == bic_best:
+        _pass(f"Silhouette and BIC agree on k = {bic_best}.")
         agreement = True
     else:
-        _warn(f"Silhouette->k={sil_best} vs BIC->k={bic_best}. Using BIC (more rigorous).")
-        agreed_k  = bic_best
+        _warn(f"Silhouette and BIC do not agree. Proceeding with BIC-selected k = {bic_best}.")
         agreement = False
 
-    return agreed_k, sil_scores, bic_scores, agreement
+    return bic_best, metrics_by_k, agreement
 
 
 # ============================================================
-# TEST 4 — PHYSICAL STATE SEPARATION (2σ rule)
+# TEST 4 -- PHYSICAL SEPARATION
 # ============================================================
-
 def test_state_separation(gmm, best_k):
-    print("\n" + "=" * 65)
-    print("  TEST 4 -- PHYSICAL STATE SEPARATION  (2-sigma rule)")
-    print("=" * 65)
-    _info("For two clusters to be physically different states, their means")
-    _info("must be at least 2x the average standard deviation apart.")
-    _info("Below 2-sigma = the distributions overlap = likely one real state split in two.")
+    print("\n" + "=" * 72)
+    print("  TEST 4 -- PHYSICAL SEPARATION")
+    print("=" * 72)
+    _info("Adjacent-state separation score (geometric diagnostic):")
+    _info("  d = (mu_(i+1) - mu_i) / sqrt((sigma_i^2 + sigma_(i+1)^2)/2)")
+    _info("This compares the mean gap to pooled spread, like an effect size.")
+    _info("We also solve for the Gaussian intersection boundary between")
+    _info("adjacent states: w1*N(x|mu1,s1^2) = w2*N(x|mu2,s2^2).")
     _sep()
 
-    state_map  = map_states(gmm, best_k)
-    means      = gmm.means_.flatten()
-    variances  = gmm.covariances_.flatten()
-    stds       = np.sqrt(np.abs(variances))
+    state_map = map_states(gmm, best_k)
+    means = gmm.means_.flatten()
+    stds = np.sqrt(np.abs(gmm.covariances_.flatten()))
+    weights = gmm.weights_.flatten()
     sorted_idx = np.argsort(means)
 
-    sorted_means = means[sorted_idx]
-    sorted_stds  = stds[sorted_idx]
-    sorted_names = [state_map[i] for i in sorted_idx]
+    print(f"\n   {'State':<12} {'Mean(W)':>12} {'Std(W)':>12} {'Weight%':>10}")
+    print("   " + "-" * 52)
+    for idx in sorted_idx:
+        print(
+            f"   {state_map[idx]:<12} "
+            f"{means[idx]:>12.2f} {stds[idx]:>12.2f} {100*weights[idx]:>9.2f}"
+        )
 
-    print(f"\n   {'State':<14} {'Mean (W)':>10} {'Std (W)':>10} {'Weight':>8}")
-    print(f"   {'':->14} {'':->10} {'':->10} {'':->8}")
-    weights = gmm.weights_
-    for i, idx in enumerate(sorted_idx):
-        print(f"   {sorted_names[i]:<14} {sorted_means[i]:>10.1f} "
-              f"{sorted_stds[i]:>10.1f} {weights[idx]:>8.3f}")
+    rows = analyze_adjacent_separation(gmm, state_map)
 
-    print()
-    all_separated = True
-    for i in range(len(sorted_means) - 1):
-        gap     = sorted_means[i+1] - sorted_means[i]
-        avg_std = (sorted_stds[i] + sorted_stds[i+1]) / 2
-        ratio   = gap / avg_std if avg_std > 0 else float('inf')
+    print(f"\n   {'Pair':<24} {'Gap(W)':>10} {'PooledStd':>12} {'d-score':>10} {'Boundary(W)':>14} {'Verdict':>16}")
+    print("   " + "-" * 96)
 
-        pair = f"{sorted_names[i]} -> {sorted_names[i+1]}"
-        if ratio >= 2.0:
-            _pass(f"{pair:<25}  gap={gap:8.1f}W  avg_std={avg_std:7.1f}W  "
-                  f"ratio={ratio:.2f}s  (well separated)")
+    all_ok = True
+    for row in rows:
+        pair = f"{row['left_state']} -> {row['right_state']}"
+        boundary_text = f"{row['boundary_w']:.2f}" if row["boundary_w"] is not None else "None"
+        print(
+            f"   {pair:<24} {row['gap']:>10.2f} {row['pooled_std']:>12.2f} "
+            f"{row['separation_d']:>10.2f} {boundary_text:>14} {row['verdict']:>16}"
+        )
+        if row["passed"]:
+            _pass(f"{pair}: {row['verdict']}.")
         else:
-            _fail(f"{pair:<25}  gap={gap:8.1f}W  avg_std={avg_std:7.1f}W  "
-                  f"ratio={ratio:.2f}s  (OVERLAPPING -- may be one state)")
-            all_separated = False
+            _fail(f"{pair}: distributions overlap strongly.")
+            all_ok = False
 
-    return all_separated, state_map, sorted_means, sorted_stds, sorted_names
+    return all_ok, state_map, rows
 
 
 # ============================================================
-# TEST 5 — SOFT-ASSIGNMENT CONFIDENCE
+# TEST 5 -- SOFT ASSIGNMENT
 # ============================================================
-
 def test_soft_assignment_confidence(gmm, X):
-    print("\n" + "=" * 65)
+    print("\n" + "=" * 72)
     print("  TEST 5 -- SOFT-ASSIGNMENT CONFIDENCE")
-    print("=" * 65)
-    _info("GMM assigns each reading a probability for EACH cluster.")
-    _info("If the max-probability is high (>80%), the model is confident.")
-    _info("If most readings hover near 50%, the clusters overlap badly.")
+    print("=" * 72)
+    _info("For each sample i, confidence is c_i = max_k gamma_ik.")
+    _info("gamma_ik is the posterior probability sample i belongs to component k.")
+    _info("Thresholds below (80% / 60%) are engineering heuristics, not proof.")
     _sep()
 
-    probs      = gmm.predict_proba(X)          # shape (N, k)
-    max_probs  = probs.max(axis=1)             # confidence per reading
+    probs = gmm.predict_proba(X)
+    max_probs = probs.max(axis=1)
 
-    pct_high   = (max_probs > 0.80).mean() * 100
-    pct_low    = (max_probs < 0.60).mean() * 100
-    avg_conf   = max_probs.mean() * 100
+    avg_conf = float(max_probs.mean() * 100.0)
+    pct_high = float((max_probs > HIGH_CONF_THRESHOLD).mean() * 100.0)
+    pct_low = float((max_probs < LOW_CONF_THRESHOLD).mean() * 100.0)
 
-    _info(f"Average max-probability   : {avg_conf:.1f}%")
-    _info(f"Readings with >80% conf   : {pct_high:.1f}%  (want >70%)")
-    _info(f"Readings with <60% conf   : {pct_low:.1f}%   (want <20%)")
-    print()
+    _info(f"Average max probability : {avg_conf:.1f}%")
+    _info(f"Readings above 80%      : {pct_high:.1f}%")
+    _info(f"Readings below 60%      : {pct_low:.1f}%")
 
     passed = True
-    if pct_high > 70:
-        _pass(f"{pct_high:.1f}% of readings assigned with >80% confidence (model is decisive)")
+    if pct_high >= HIGH_CONF_TARGET_PCT:
+        _pass(f"{pct_high:.1f}% of readings exceed 80% confidence.")
     else:
-        _fail(f"Only {pct_high:.1f}% of readings have >80% confidence. "
-              "Clusters overlap too much — GMM is uncertain about assignments.")
+        _fail(f"Only {pct_high:.1f}% of readings exceed 80% confidence.")
         passed = False
 
-    if pct_low < 20:
-        _pass(f"Only {pct_low:.1f}% of readings are ambiguous (<60% confidence)")
+    if pct_low <= LOW_CONF_MAX_PCT:
+        _pass(f"Only {pct_low:.1f}% of readings are below 60% confidence.")
     else:
-        _fail(f"{pct_low:.1f}% of readings are ambiguous. Consider a different k.")
+        _fail(f"{pct_low:.1f}% of readings are below 60% confidence.")
         passed = False
 
     return passed, max_probs
 
 
 # ============================================================
-# TEST 6 — WEIGHT SANITY
+# TEST 6 -- WEIGHT SANITY
 # ============================================================
-
-def test_weight_sanity(gmm, best_k, state_map):
-    print("\n" + "=" * 65)
+def test_weight_sanity(gmm, state_map):
+    print("\n" + "=" * 72)
     print("  TEST 6 -- CLUSTER WEIGHT SANITY")
-    print("=" * 65)
-    _info("Each GMM component has a weight = fraction of data it models.")
-    _info("A weight <0.5% means the cluster likely caught edge-case noise")
-    _info("rather than a real physical state.")
+    print("=" * 72)
+    _info("Mixture weights should sum to 1 (sum_k w_k = 1).")
+    _info("Very tiny components often indicate noise-catching clusters")
+    _info("rather than a genuine machine state.")
     _sep()
 
-    weights    = gmm.weights_
-    sorted_idx = np.argsort(gmm.means_.flatten())
-    names      = [state_map[i] for i in sorted_idx]
-    sorted_w   = weights[sorted_idx]
+    means = gmm.means_.flatten()
+    weights = gmm.weights_.flatten()
+    sorted_idx = np.argsort(means)
 
     passed = True
-    print()
-    for name, w in zip(names, sorted_w):
-        pct = w * 100
-        if pct < 0.5:
-            _fail(f"{name:<14}: weight = {pct:.2f}%  (too tiny — likely noise artefact)")
+    total_weight = weights.sum()
+    _info(f"Sum of weights: {total_weight:.6f}")
+
+    for idx in sorted_idx:
+        name = state_map[idx]
+        pct = 100.0 * weights[idx]
+        if pct < TINY_WEIGHT_FAIL_PCT:
+            _fail(f"{name:<12}: {pct:.2f}% weight -- too tiny, likely an artifact.")
             passed = False
-        elif pct < 3.0:
-            _warn(f"{name:<14}: weight = {pct:.2f}%  (very small — verify this state exists)")
+        elif pct < SMALL_WEIGHT_WARN_PCT:
+            _warn(f"{name:<12}: {pct:.2f}% weight -- very small, verify manually.")
         else:
-            _pass(f"{name:<14}: weight = {pct:.2f}%  (meaningful cluster)")
+            _pass(f"{name:<12}: {pct:.2f}% weight -- substantial.")
 
     return passed
 
 
 # ============================================================
-# PLOT 1 — BIC / SILHOUETTE CURVE  (k-selection proof)
+# PLOTTING
 # ============================================================
+def plot_k_selection(metrics_by_k, best_k, save_dir):
+    try:
+        ks = sorted(metrics_by_k.keys())
+        sil = [metrics_by_k[k]["silhouette"] for k in ks]
+        bic = [metrics_by_k[k]["bic"] for k in ks]
+        aic = [metrics_by_k[k]["aic"] for k in ks]
 
-def plot_k_selection(sil_scores, bic_scores, best_k, save_dir):
-    fig, axes = plt.subplots(1, 2, figsize=(13, 5))
-    fig.suptitle(f"GMM k-Selection Proof — {MACHINE_NAME}",
-                 fontsize=14, fontweight='bold')
+        fig, axes = plt.subplots(1, 3, figsize=(16, 5))
+        fig.suptitle(f"GMM Model Selection - {MACHINE_NAME}", fontsize=14, fontweight="bold")
 
-    ks  = list(sil_scores.keys())
-    sil = [sil_scores[k] for k in ks]
-    bic = [bic_scores[k] for k in ks]
+        axes[0].plot(ks, sil, marker="o", linewidth=2)
+        axes[0].axvline(best_k, linestyle="--", color="red")
+        axes[0].set_title("Silhouette (higher is better)")
+        axes[0].set_xlabel("k")
+        axes[0].set_ylabel("Silhouette")
+        axes[0].set_xticks(ks)
+        axes[0].grid(alpha=0.3)
 
-    # Silhouette
-    ax = axes[0]
-    ax.plot(ks, sil, 'o-', color='#4fc3f7', linewidth=2.5, markersize=9)
-    ax.axvline(best_k, color='#e53935', linestyle='--', linewidth=1.5,
-               label=f'Selected k={best_k}')
-    ax.fill_between(ks, sil, alpha=0.15, color='#4fc3f7')
-    ax.set_title("Silhouette Score  (↑ higher is better)", fontsize=12)
-    ax.set_xlabel("Number of clusters k")
-    ax.set_ylabel("Silhouette Score")
-    ax.set_xticks(ks)
-    ax.legend()
-    ax.grid(axis='y', alpha=0.3)
+        axes[1].plot(ks, bic, marker="o", linewidth=2, color="#f0a500")
+        axes[1].axvline(best_k, linestyle="--", color="red")
+        axes[1].set_title("BIC (lower is better)")
+        axes[1].set_xlabel("k")
+        axes[1].set_ylabel("BIC")
+        axes[1].set_xticks(ks)
+        axes[1].grid(alpha=0.3)
 
-    # BIC
-    ax = axes[1]
-    ax.plot(ks, bic, 's-', color='#f0a500', linewidth=2.5, markersize=9)
-    ax.axvline(best_k, color='#e53935', linestyle='--', linewidth=1.5,
-               label=f'Selected k={best_k}')
-    ax.fill_between(ks, bic, alpha=0.15, color='#f0a500')
-    ax.set_title("BIC Score  (↓ lower is better)", fontsize=12)
-    ax.set_xlabel("Number of clusters k")
-    ax.set_ylabel("BIC Score")
-    ax.set_xticks(ks)
-    ax.legend()
-    ax.grid(axis='y', alpha=0.3)
+        axes[2].plot(ks, aic, marker="o", linewidth=2, color="#4fc3f7")
+        axes[2].axvline(best_k, linestyle="--", color="red")
+        axes[2].set_title("AIC (lower is better)")
+        axes[2].set_xlabel("k")
+        axes[2].set_ylabel("AIC")
+        axes[2].set_xticks(ks)
+        axes[2].grid(alpha=0.3)
 
-    plt.tight_layout()
-    out = os.path.join(save_dir, "T3_k_selection_curves.png")
-    plt.savefig(out, dpi=140, bbox_inches='tight')
-    plt.close()
-    print(f"   📊 Saved: T3_k_selection_curves.png")
+        plt.tight_layout()
+        out = os.path.join(save_dir, "T3_k_selection_curves.png")
+        plt.savefig(out, dpi=150, bbox_inches="tight")
+        plt.close(fig)
+        print(f"   Saved: {out}")
+    except Exception as e:
+        _warn(f"Could not generate k-selection plot: {e}")
 
 
-# ============================================================
-# PLOT 2 — GMM GAUSSIAN OVERLAY ON HISTOGRAM
-# ============================================================
+def plot_gmm_histogram(df, gmm, state_map, save_dir):
+    try:
+        power = df["power"].values
+        means = gmm.means_.flatten()
+        stds = np.sqrt(np.abs(gmm.covariances_.flatten()))
+        weights = gmm.weights_.flatten()
+        sorted_idx = np.argsort(means)
 
-def plot_gmm_histogram(df, gmm, best_k, state_map, save_dir):
-    """
-    The key diagnostic plot.
-    Shows:
-     - Power histogram (log scale x-axis for ON-state)
-     - Each GMM Gaussian bell curve overlaid in the state colour
-     - Cluster boundary vertical lines
-    """
-    fig, axes = plt.subplots(1, 2, figsize=(16, 6))
-    fig.suptitle(f"GMM Gaussian Overlay — {MACHINE_NAME}  (k={best_k})",
-                 fontsize=14, fontweight='bold')
+        fig, ax = plt.subplots(figsize=(12, 6))
+        # Fixed bin count keeps bin width consistent across machines with
+        # very different power ranges, avoiding misleading spike artifacts.
+        n_bins = min(120, max(30, int(np.sqrt(len(power)))))
+        bins = np.linspace(power.min(), power.max(), n_bins)
+        ax.hist(power, bins=bins, density=True, alpha=0.5, color="#334155", edgecolor="white", linewidth=0.3)
 
-    power       = df['power'].values
-    means       = gmm.means_.flatten()
-    variances   = gmm.covariances_.flatten()
-    stds        = np.sqrt(np.abs(variances))
-    weights     = gmm.weights_
-    sorted_idx  = np.argsort(means)
-    sorted_names = [state_map[i] for i in sorted_idx]
-    state_list  = K_TO_NAMES.get(best_k, [f"S{i}" for i in range(best_k)])
+        x = np.linspace(power.min(), power.max(), 2000)
+        total_pdf = np.zeros_like(x)
 
-    # ── LEFT: full distribution including OFF state ───────────────
-    ax = axes[0]
-    bins = np.linspace(0, power.max(), 120)
-    ax.hist(power, bins=bins, density=True, color='#1e2a3a',
-            edgecolor='#2d3f58', linewidth=0.3, label='Data', alpha=0.9)
-
-    x = np.linspace(0, power.max(), 2000)
-    total_pdf = np.zeros_like(x)
-    for idx in sorted_idx:
-        pdf     = weights[idx] * norm.pdf(x, means[idx], stds[idx])
-        name    = state_map[idx]
-        color   = STATE_COLORS.get(name, '#aaaaaa')
-        ax.fill_between(x, pdf, alpha=0.35, color=color)
-        ax.plot(x, pdf, linewidth=2, color=color, label=name)
-        total_pdf += pdf
-
-    ax.plot(x, total_pdf, linewidth=1.5, color='white',
-            linestyle='--', alpha=0.6, label='Total GMM')
-    ax.set_title("Full Distribution  (incl. OFF state)", fontsize=11)
-    ax.set_xlabel("Power (W)")
-    ax.set_ylabel("Density")
-    ax.legend(fontsize=9, loc='upper right')
-    ax.set_xlim(left=0)
-
-    # ── RIGHT: ON-state only (zoom, log-x) ───────────────────────
-    ax = axes[1]
-    on_power = power[power > 5]
-    if len(on_power) > 10:
-        max_p    = on_power.max()
-        log_bins = np.logspace(np.log10(5.1), np.log10(max_p + 1), 120)
-        ax.hist(on_power, bins=log_bins, density=True, color='#1e2a3a',
-                edgecolor='#2d3f58', linewidth=0.3, alpha=0.9)
-
-        x2         = np.logspace(np.log10(5.1), np.log10(max_p + 1), 2000)
-        total_pdf2 = np.zeros_like(x2)
         for idx in sorted_idx:
-            if means[idx] <= 5:        # skip OFF-state bell curve here
-                continue
-            pdf   = weights[idx] * norm.pdf(x2, means[idx], stds[idx])
-            name  = state_map[idx]
-            color = STATE_COLORS.get(name, '#aaaaaa')
-            ax.fill_between(x2, pdf, alpha=0.4, color=color)
-            ax.plot(x2, pdf, linewidth=2.5, color=color,
-                    label=f"{name}\n~{means[idx]:.0f}W ± {stds[idx]:.0f}W")
-            total_pdf2 += pdf
-            # Mean marker
-            ax.axvline(means[idx], color=color, linestyle=':', linewidth=1.5, alpha=0.7)
+            state = state_map[idx]
+            color = STATE_COLORS.get(state, "#999999")
+            pdf = weights[idx] * norm.pdf(x, means[idx], stds[idx])
+            total_pdf += pdf
+            ax.fill_between(x, pdf, alpha=0.25, color=color)
+            ax.plot(x, pdf, color=color, linewidth=2, label=f"{state} ({means[idx]:.1f}W)")
+            ax.axvline(means[idx], color=color, linestyle=":", linewidth=1.2, alpha=0.8)
 
-        ax.set_xscale('log')
-        ax.set_title("ON-State Only  (log x-axis, shows cluster separation)",
-                     fontsize=11)
-        ax.set_xlabel("Power (W)  [log scale]")
+        ax.plot(x, total_pdf, color="black", linestyle="--", linewidth=1.5, label="Total mixture")
+        ax.set_title(f"GMM Gaussian Overlay - {MACHINE_NAME}")
+        ax.set_xlabel("Power (W)")
         ax.set_ylabel("Density")
-        ax.legend(fontsize=9, loc='upper right')
+        ax.legend()
+        ax.grid(alpha=0.2)
 
-    plt.tight_layout()
-    out = os.path.join(save_dir, "T5_gmm_histogram_overlay.png")
-    plt.savefig(out, dpi=140, bbox_inches='tight')
-    plt.close()
-    print(f"   📊 Saved: T5_gmm_histogram_overlay.png")
+        plt.tight_layout()
+        out = os.path.join(save_dir, "T4_gmm_histogram_overlay.png")
+        plt.savefig(out, dpi=150, bbox_inches="tight")
+        plt.close(fig)
+        print(f"   Saved: {out}")
+    except Exception as e:
+        _warn(f"Could not generate histogram overlay plot: {e}")
 
-
-# ============================================================
-# PLOT 3 — SOFT-ASSIGNMENT CONFIDENCE DISTRIBUTION
-# ============================================================
 
 def plot_confidence_histogram(max_probs, save_dir):
-    fig, ax = plt.subplots(figsize=(10, 5))
+    try:
+        fig, ax = plt.subplots(figsize=(10, 5))
+        ax.hist(max_probs * 100.0, bins=60, color="#4fc3f7", edgecolor="#1e293b", linewidth=0.4)
+        ax.axvline(80, color="#16a34a", linestyle="--", linewidth=2, label="80% threshold")
+        ax.axvline(60, color="#dc2626", linestyle="--", linewidth=2, label="60% threshold")
+        ax.set_title(f"GMM Assignment Confidence - {MACHINE_NAME}")
+        ax.set_xlabel("Max posterior probability (%)")
+        ax.set_ylabel("Number of readings")
+        ax.legend()
+        ax.grid(alpha=0.2)
 
-    ax.hist(max_probs * 100, bins=60, color='#4fc3f7',
-            edgecolor='#1e2a3a', linewidth=0.4)
-    ax.axvline(80, color='#66bb6a', linestyle='--', linewidth=2,
-               label='80% confidence threshold (want most readings here →)')
-    ax.axvline(60, color='#e53935', linestyle='--', linewidth=2,
-               label='60% confidence threshold (← readings here are ambiguous)')
-    ax.set_title(f"GMM Assignment Confidence — {MACHINE_NAME}\n"
-                 "Taller bar near 100% = model is decisive and correct",
-                 fontsize=12, fontweight='bold')
-    ax.set_xlabel("Max Assignment Probability (%)")
-    ax.set_ylabel("Number of Readings")
-    ax.legend(fontsize=9)
-    plt.tight_layout()
-    out = os.path.join(save_dir, "T5_confidence_distribution.png")
-    plt.savefig(out, dpi=140, bbox_inches='tight')
-    plt.close()
-    print(f"   📊 Saved: T5_confidence_distribution.png")
-
-
-# ============================================================
-# PLOT 4 — LABELLED TIME-SERIES SAMPLE  (first 2000 readings)
-# ============================================================
-
-def plot_labeled_sample(df, gmm, best_k, state_map, save_dir):
-    sample = df.head(2000).copy()
-    X_s    = sample['power'].values.reshape(-1, 1)
-    labels = gmm.predict(X_s)
-    sample['state'] = [state_map[l] for l in labels]
-
-    fig, ax = plt.subplots(figsize=(16, 5))
-    for state, color in STATE_COLORS.items():
-        mask = sample['state'] == state
-        if mask.any():
-            ax.scatter(sample.loc[mask, 'timestamp'],
-                       sample.loc[mask, 'power'],
-                       c=color, s=4, label=state, zorder=3)
-
-    ax.plot(sample['timestamp'], sample['power'],
-            color='#cccccc', linewidth=0.6, alpha=0.4, zorder=2)
-
-    ax.set_title(f"GMM State Labels — First 2000 Readings — {MACHINE_NAME}\n"
-                 "Colour = state assigned by GMM. No HMM or post-processing applied.",
-                 fontsize=12, fontweight='bold')
-    ax.set_xlabel("Time")
-    ax.set_ylabel("Power (W)")
-    ax.legend(markerscale=4, fontsize=9, loc='upper right')
-    plt.tight_layout()
-    out = os.path.join(save_dir, "T5_labeled_time_sample.png")
-    plt.savefig(out, dpi=140, bbox_inches='tight')
-    plt.close()
-    print(f"   📊 Saved: T5_labeled_time_sample.png")
+        plt.tight_layout()
+        out = os.path.join(save_dir, "T5_confidence_distribution.png")
+        plt.savefig(out, dpi=150, bbox_inches="tight")
+        plt.close(fig)
+        print(f"   Saved: {out}")
+    except Exception as e:
+        _warn(f"Could not generate confidence histogram: {e}")
 
 
-# ============================================================
-# PLOT 5 — SEPARATION VISUAL (violin / box plot per cluster)
-# ============================================================
+def plot_labeled_sample(df, gmm, state_map, save_dir, n_points=2000):
+    try:
+        sample = df.head(n_points).copy()
+        Xs = sample["power"].values.reshape(-1, 1)
+        labels = gmm.predict(Xs)
+        sample["state"] = [state_map[l] for l in labels]
 
-def plot_cluster_separation(df, gmm, best_k, state_map, save_dir):
-    X      = df['power'].values.reshape(-1, 1)
-    labels = gmm.predict(X)
-    df2    = df.copy()
-    df2['state'] = [state_map[l] for l in labels]
+        fig, ax = plt.subplots(figsize=(15, 5))
+        for state, color in STATE_COLORS.items():
+            mask = sample["state"] == state
+            if mask.any():
+                ax.scatter(
+                    sample.loc[mask, "timestamp"],
+                    sample.loc[mask, "power"],
+                    s=6,
+                    c=color,
+                    label=state,
+                    alpha=0.8,
+                )
 
-    ordered_states = [s for s in ['OFF', 'STANDBY', 'IDLE', 'WORKING', 'PEAK_LOAD']
-                      if s in df2['state'].unique()]
+        ax.plot(sample["timestamp"], sample["power"], color="#cbd5e1", linewidth=0.7, alpha=0.6)
+        ax.set_title(f"Labeled Time Sample - First {min(n_points, len(sample))} Readings")
+        ax.set_xlabel("Time")
+        ax.set_ylabel("Power (W)")
+        ax.legend()
+        ax.grid(alpha=0.2)
 
-    fig, ax = plt.subplots(figsize=(12, 6))
-    data_per_state = [
-        df2.loc[df2['state'] == s, 'power'].sample(
-            min(5000, (df2['state'] == s).sum()), random_state=42
-        ).values
-        for s in ordered_states
-    ]
-    colors = [STATE_COLORS[s] for s in ordered_states]
+        plt.tight_layout()
+        out = os.path.join(save_dir, "T5_labeled_time_sample.png")
+        plt.savefig(out, dpi=150, bbox_inches="tight")
+        plt.close(fig)
+        print(f"   Saved: {out}")
+    except Exception as e:
+        _warn(f"Could not generate labeled time-series plot: {e}")
 
-    parts = ax.violinplot(data_per_state, positions=range(len(ordered_states)),
-                          showmeans=True, showmedians=False, showextrema=True)
 
-    for i, (pc, col) in enumerate(zip(parts['bodies'], colors)):
-        pc.set_facecolor(col)
-        pc.set_alpha(0.65)
+def plot_cluster_separation(df, gmm, state_map, save_dir):
+    try:
+        df2 = df.copy()
+        X = df2["power"].values.reshape(-1, 1)
+        labels = gmm.predict(X)
+        df2["state"] = [state_map[l] for l in labels]
 
-    for part_name in ['cmeans', 'cbars', 'cmins', 'cmaxes']:
-        if part_name in parts:
-            parts[part_name].set_color('white')
-            parts[part_name].set_linewidth(1.5)
+        ordered_states = [s for s in ["OFF", "STANDBY", "IDLE", "WORKING"] if s in df2["state"].unique()]
+        data_per_state = []
+        for s in ordered_states:
+            subset = df2.loc[df2["state"] == s, "power"]
+            n_sample = min(5000, len(subset))
+            if n_sample == 0:
+                continue
+            data_per_state.append(subset.sample(n_sample, random_state=42).values)
 
-    ax.set_xticks(range(len(ordered_states)))
-    ax.set_xticklabels(ordered_states, fontsize=11)
-    ax.set_title(f"Power Distribution per GMM State — {MACHINE_NAME}\n"
-                 "Well-separated violins = GMM split is physically correct",
-                 fontsize=12, fontweight='bold')
-    ax.set_ylabel("Power (W)")
-    ax.grid(axis='y', alpha=0.25)
+        if not data_per_state:
+            _warn("No states with data available for cluster separation plot.")
+            return
 
-    # annotate means
-    means = gmm.means_.flatten()
-    for i, state in enumerate(ordered_states):
-        mean_val = df2.loc[df2['state'] == state, 'power'].mean()
-        ax.annotate(f"{mean_val:.0f}W", xy=(i, mean_val),
-                    xytext=(i + 0.15, mean_val),
-                    fontsize=9, color='white', fontweight='bold')
+        fig, ax = plt.subplots(figsize=(12, 6))
+        parts = ax.violinplot(data_per_state, showmeans=True, showmedians=False, showextrema=True)
 
-    plt.tight_layout()
-    out = os.path.join(save_dir, "T4_cluster_separation_violin.png")
-    plt.savefig(out, dpi=140, bbox_inches='tight')
-    plt.close()
-    print(f"   📊 Saved: T4_cluster_separation_violin.png")
+        for body, state in zip(parts["bodies"], ordered_states):
+            body.set_facecolor(STATE_COLORS[state])
+            body.set_alpha(0.65)
+
+        for part_name in ["cmeans", "cbars", "cmins", "cmaxes"]:
+            if part_name in parts:
+                parts[part_name].set_color("black")
+                parts[part_name].set_linewidth(1.0)
+
+        ax.set_xticks(range(1, len(ordered_states) + 1))
+        ax.set_xticklabels(ordered_states)
+        ax.set_ylabel("Power (W)")
+        ax.set_title(f"Power Distribution by Assigned GMM State - {MACHINE_NAME}")
+        ax.grid(axis="y", alpha=0.2)
+
+        plt.tight_layout()
+        out = os.path.join(save_dir, "T4_cluster_separation_violin.png")
+        plt.savefig(out, dpi=150, bbox_inches="tight")
+        plt.close(fig)
+        print(f"   Saved: {out}")
+    except Exception as e:
+        _warn(f"Could not generate cluster separation plot: {e}")
 
 
 # ============================================================
-# FINAL SUMMARY REPORT
+# FINAL REPORT
 # ============================================================
-
 def print_final_report(results, best_k, state_map, gmm):
-    print("\n" + "=" * 65)
+    print("\n" + "=" * 72)
     print("  FINAL GMM VALIDATION SUMMARY")
-    print("=" * 65)
+    print("=" * 72)
 
-    labels = {True: "[PASS]", False: "[FAIL]"}
-    print(f"  {'Test':<45} {'Result':>10}")
-    print(f"  {'':->45} {'':->10}")
+    print(f"  {'Test':<52} {'Result':>10}")
+    print(f"  {'-' * 52} {'-' * 10}")
+
     for name, passed in results.items():
-        print(f"  {name:<45} {labels[passed]:>10}")
+        label = "[PASS]" if passed else "[FAIL]"
+        print(f"  {name:<52} {label:>10}")
 
-    passed_count = sum(1 for v in results.values() if v)
-    total_count  = len(results)
-    pct          = passed_count / total_count * 100
+    passed_count = sum(bool(v) for v in results.values())
+    total_count = len(results)
+    pct = 100.0 * passed_count / total_count if total_count else 0.0
 
-    print(f"\n  Passed: {passed_count}/{total_count}  ({pct:.0f}%)")
-    print()
+    print(f"\n  Passed: {passed_count}/{total_count} ({pct:.0f}%)")
 
-    if pct == 100:
-        verdict = "[CONFIRMED] GMM is splitting the data correctly."
-        detail  = ("All 6 independent tests passed. The power clusters represent "
-                   "physically distinct machine states. Safe to build the next "
-                   "pipeline stage on top of this.")
-    elif pct >= 66:
-        verdict = "[PARTIAL] GMM is working but some checks raised warnings."
-        detail  = ("Review the FAIL items above. The model may still be usable "
-                   "but the flagged checks suggest either a better k exists or "
-                   "some states overlap. Manual inspection of the plots recommended.")
+    if pct >= 83:
+        verdict = "CONFIRMED"
+        detail = "The GMM appears to split the power readings into meaningful states."
+    elif pct >= 50:
+        verdict = "PARTIAL"
+        detail = "The GMM is usable, but some checks indicate caution and manual review."
     else:
-        verdict = "[SUSPECT] GMM likely not splitting correctly."
-        detail  = ("Multiple checks failed. Do NOT proceed to the next pipeline "
-                   "stage yet. Review the plots and consider adjusting k, checking "
-                   "your data loader, or investigating degenerate power values.")
+        verdict = "SUSPECT"
+        detail = "The GMM likely does not separate the machine states reliably yet."
 
-    print(f"  {verdict}")
-    print(f"\n  {detail}")
+    print(f"\n  Verdict: {verdict}")
+    print(f"  {detail}")
+    print("  (Heuristic checks above are engineering guidance, not formal proof.)")
 
-    # Print final state assignments
-    means      = gmm.means_.flatten()
-    stds       = np.sqrt(np.abs(gmm.covariances_.flatten()))
+    means = gmm.means_.flatten()
+    stds = np.sqrt(np.abs(gmm.covariances_.flatten()))
+    weights = gmm.weights_.flatten()
     sorted_idx = np.argsort(means)
-    print(f"\n  FINAL STATE MAP  (k={best_k}):")
-    print(f"  {'State':<14} {'Mean (W)':>10}  {'Std (W)':>10}  {'Weight':>8}")
-    print(f"  {'':->14} {'':->10}  {'':->10}  {'':->8}")
+
+    print(f"\n  Final state map (k={best_k}):")
+    print(f"  {'State':<12} {'Mean(W)':>12} {'Std(W)':>12} {'Weight%':>10}")
+    print("  " + "-" * 50)
     for idx in sorted_idx:
-        name = state_map[idx]
-        print(f"  {name:<14} {means[idx]:>10.1f}  {stds[idx]:>10.1f}  "
-              f"{gmm.weights_[idx]:>8.3f}")
-    print("=" * 65 + "\n")
+        print(f"  {state_map[idx]:<12} {means[idx]:>12.2f} {stds[idx]:>12.2f} {100*weights[idx]:>9.2f}")
+    print("=" * 72 + "\n")
 
 
 # ============================================================
 # MAIN
 # ============================================================
-
 def main():
-    os.makedirs(OUTPUT_DIR, exist_ok=True)
+    try:
+        os.makedirs(OUTPUT_DIR, exist_ok=True)
+    except OSError as e:
+        print(f"ERROR: could not create output directory '{OUTPUT_DIR}': {e}")
+        return
 
-    print("=" * 65)
+    print("=" * 72)
     print("  GMM VALIDATION HARNESS")
     print(f"  File    : {DATA_PATH}")
     print(f"  Machine : {MACHINE_NAME}")
     print(f"  Output  : {OUTPUT_DIR}")
-    print("=" * 65)
+    print("=" * 72)
 
-    # ── Load data ──────────────────────────────────────────────────
     if not os.path.exists(DATA_PATH):
-        print(f"\n❌ Data file not found: {DATA_PATH}")
-        print("   Update DATA_PATH at the top of this file.")
+        print(f"\nERROR: data file not found: {DATA_PATH}")
+        print("Update DATA_PATH at the top of this script.")
         return
 
-    df = load_and_prepare_data(DATA_PATH)
+    try:
+        df = load_and_prepare_data(DATA_PATH)
+    except Exception as e:
+        print(f"\nERROR: load_and_prepare_data() failed: {e}")
+        return
 
-    # ── Test 1: Sanity ────────────────────────────────────────────
+    if df is None or len(df) == 0:
+        print("\nERROR: load_and_prepare_data() returned an empty dataframe.")
+        return
+
+    if "power" not in df.columns:
+        print("\nERROR: 'power' column missing from loaded dataframe. Cannot continue.")
+        return
+
+    if "timestamp" not in df.columns:
+        _warn("Column 'timestamp' not found; labeled time plot may fail.")
+
     t1 = test_data_sanity(df)
+    if not t1:
+        _warn("Data sanity test failed; continuing so you can inspect diagnostics.")
 
-    # ── Fit GMMs for all k values ─────────────────────────────────
-    print("\n   Fitting GMMs for k ∈", K_RANGE, "with n_init=5 …")
-    X      = df['power'].values.reshape(-1, 1)
+    X = df["power"].values.reshape(-1, 1)
+
+    if len(np.unique(X)) < max(K_RANGE):
+        print(f"\nERROR: power column has fewer unique values than the largest k in {K_RANGE}.")
+        print("Cannot fit that many mixture components on this data.")
+        return
+
+    print("\n   Fitting candidate GMMs...")
     models = {}
+    labels_by_k = {}
     for k in K_RANGE:
-        print(f"   Fitting k={k} … ", end='', flush=True)
-        models[k] = fit_gmm(X, k, n_init=5)
+        print(f"   Fitting k={k}...", end=" ")
+        try:
+            gmm = fit_gmm(X, k)
+        except Exception as e:
+            print("failed")
+            _fail(f"GMM fit failed for k={k}: {e}")
+            continue
+        models[k] = gmm
+        labels_by_k[k] = gmm.predict(X)
         print("done")
 
-    labels = {k: models[k].predict(X) for k in K_RANGE}
+    if not models:
+        print("\nERROR: no candidate GMMs could be fit. Aborting.")
+        return
 
-    # ── Test 2: Convergence ───────────────────────────────────────
-    t2 = test_gmm_convergence(X, models)
+    active_k_range = sorted(models.keys())
+    if active_k_range != K_RANGE:
+        _warn(f"Only fit k in {active_k_range} (some candidates failed).")
 
-    # ── Test 3: k selection ───────────────────────────────────────
-    best_k, sil_scores, bic_scores, agreement = test_k_selection(X, models, labels)
-    t3 = agreement
+    t2 = test_gmm_convergence(models)
 
-    best_gmm  = models[best_k]
+    # Use whichever k values actually fit successfully
+    best_k, metrics_by_k, t3 = test_k_selection(X, models, labels_by_k, k_range=active_k_range)
+
+    best_gmm = models[best_k]
     state_map = map_states(best_gmm, best_k)
 
-    # ── Test 4: Physical separation ───────────────────────────────
-    t4, state_map, s_means, s_stds, s_names = test_state_separation(best_gmm, best_k)
-
-    # ── Test 5: Soft-assignment confidence ────────────────────────
+    t4, state_map, separation_rows = test_state_separation(best_gmm, best_k)
     t5, max_probs = test_soft_assignment_confidence(best_gmm, X)
+    t6 = test_weight_sanity(best_gmm, state_map)
 
-    # ── Test 6: Weight sanity ─────────────────────────────────────
-    t6 = test_weight_sanity(best_gmm, best_k, state_map)
-
-    # ── Diagnostic plots ──────────────────────────────────────────
-    print("\n" + "=" * 65)
+    print("\n" + "=" * 72)
     print("  GENERATING DIAGNOSTIC PLOTS")
-    print("=" * 65)
-    plot_k_selection(sil_scores, bic_scores, best_k, OUTPUT_DIR)
-    plot_gmm_histogram(df, best_gmm, best_k, state_map, OUTPUT_DIR)
+    print("=" * 72)
+
+    plot_k_selection(metrics_by_k, best_k, OUTPUT_DIR)
+    plot_gmm_histogram(df, best_gmm, state_map, OUTPUT_DIR)
     plot_confidence_histogram(max_probs, OUTPUT_DIR)
-    plot_labeled_sample(df, best_gmm, best_k, state_map, OUTPUT_DIR)
-    plot_cluster_separation(df, best_gmm, best_k, state_map, OUTPUT_DIR)
 
-    # ── Final report ──────────────────────────────────────────────
+    if "timestamp" in df.columns:
+        plot_labeled_sample(df, best_gmm, state_map, OUTPUT_DIR)
+    else:
+        _warn("Skipping labeled time-series plot because 'timestamp' is missing.")
+
+    plot_cluster_separation(df, best_gmm, state_map, OUTPUT_DIR)
+
     results = {
-        "T1  Data Sanity (rows, no-NaN, non-neg)":        t1,
-        "T2  GMM Convergence (EM algorithm)":              t2,
-        "T3  k Selection (Sil + BIC agree)":               t3,
-        "T4  Physical Separation (2σ between clusters)":   t4,
-        "T5  Soft-Assignment Confidence (>80% in >70%)":   t5,
-        "T6  Cluster Weight Sanity (no ghost clusters)":   t6,
+        "T1 Data sanity": t1,
+        "T2 GMM convergence": t2,
+        "T3 k-selection support": t3,
+        "T4 Physical separation": t4,
+        "T5 Soft-assignment confidence": t5,
+        "T6 Cluster weight sanity": t6,
     }
-    print_final_report(results, best_k, state_map, best_gmm)
 
-    print(f"All plots saved to: {OUTPUT_DIR}/")
+    print_final_report(results, best_k, state_map, best_gmm)
+    print(f"All outputs saved under: {OUTPUT_DIR}")
 
 
 if __name__ == "__main__":
