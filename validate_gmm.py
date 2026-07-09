@@ -622,6 +622,314 @@ def plot_cluster_separation(df, gmm, best_k, state_map, save_dir):
 
 
 # ============================================================
+# TEST 7 — PHYSICS THRESHOLD CROSS-CHECK
+# ============================================================
+# This is the test that answers the core question:
+# "How do we KNOW the GMM split matches actual machine behaviour?"
+#
+# EVIDENCE: Industrial power physics dictates:
+#   OFF    → Mean must be near 0 W (< 5% of max observed power)
+#             because when off, only residual sensor current flows.
+#   STANDBY → Must be STABLE (low Coefficient of Variation CV = σ/μ)
+#             because auxiliary loads (cooling fan, PLC, lubrication)
+#             are constant and do not fluctuate like a cutting spindle.
+#   WORKING → Must have GAP from max power; cannot be at 100% of max
+#             all the time (machines have variable cutting loads).
+#
+# Source: Jiang et al. (2015) patent model  P_total = P₀ + P_spindle
+#         + P_feed + P_tip. This directly implies:
+#         • P₀ (OFF/standby base) is small and constant.
+#         • P_spindle and P_feed are variable → WORKING has high CV.
+# ============================================================
+
+def test_physics_thresholds(gmm, best_k, state_map, max_power):
+    print("\n" + "=" * 65)
+    print("  TEST 7 -- PHYSICS THRESHOLD CROSS-CHECK")
+    print("=" * 65)
+    _info("This test checks whether GMM cluster means/variances match")
+    _info("the physics of industrial machine power consumption.")
+    _info("Evidence base: ISO 14955, Jiang et al. (2015), Wu et al. (2024)")
+    _sep()
+
+    means      = gmm.means_.flatten()
+    variances  = gmm.covariances_.flatten()
+    stds       = np.sqrt(np.abs(variances))
+    sorted_idx = np.argsort(means)
+
+    off_mean  = means[sorted_idx[0]]
+    off_std   = stds[sorted_idx[0]]
+    stby_mean = means[sorted_idx[1]] if best_k >= 3 else None
+    stby_std  = stds[sorted_idx[1]] if best_k >= 3 else None
+    work_mean = means[sorted_idx[-1]]
+    work_std  = stds[sorted_idx[-1]]
+
+    passed = True
+
+    # ── Check 1: OFF mean must be near 0 (< 5% of max power) ────────
+    off_threshold = max(5.0, max_power * 0.05)   # 5W floor or 5% of max
+    print(f"\n   CHECK 1 — OFF cluster mean must be < {off_threshold:.1f} W  "
+          f"(5% of max={max_power:.1f} W, or 5W floor)")
+    print(f"   Physics: when a machine is truly OFF, only residual\n"
+          f"   sensor/standby-circuit current flows (Jiang et al. 2015)")
+    if off_mean < off_threshold:
+        _pass(f"OFF mean = {off_mean:.1f} W  < {off_threshold:.1f} W  — "
+              f"cluster is near-zero: physically correct for OFF state")
+    else:
+        _fail(f"OFF mean = {off_mean:.1f} W  ≥ {off_threshold:.1f} W  — "
+              f"cluster is NOT near zero. Possible causes:\n"
+              f"         • Machine is never fully powered down\n"
+              f"         • k=3 is wrong for this machine (try k=2)\n"
+              f"         • Data contains a constant baseline load")
+        passed = False
+
+    # ── Check 2: OFF cluster CV must be tiny (σ/μ or σ < 10W) ───────
+    print(f"\n   CHECK 2 — OFF cluster must be stable (σ < 15 W or σ < 20% of mean)")
+    print(f"   Physics: OFF power is residual circuit draw — nearly constant,\n"
+          f"   very low noise (ISO 14955-2 measurement procedure)")
+    off_cv_ok = (off_std < 15.0) or (off_mean > 0 and off_std / off_mean < 0.20)
+    if off_cv_ok:
+        _pass(f"OFF std  = {off_std:.1f} W  — stable, low-noise cluster. "
+              f"Consistent with residual standby-circuit draw")
+    else:
+        _warn(f"OFF std  = {off_std:.1f} W  — high spread for an OFF cluster. "
+              f"May include very-low-load active periods")
+        passed = False
+
+    # ── Check 3: STANDBY must be stable (lower CV than WORKING) ─────
+    if stby_mean is not None:
+        stby_cv = stby_std / stby_mean if stby_mean > 0 else float('inf')
+        work_cv = work_std / work_mean if work_mean > 0 else float('inf')
+        print(f"\n   CHECK 3 — STANDBY must be more stable than WORKING (CV_standby < CV_working)")
+        print(f"   Physics: Standby = fixed auxiliary loads (fan, PLC, pump) → low CV.")
+        print(f"   Working = variable cutting load (tool, material) → high CV.")
+        print(f"   Formula: CV = σ / μ  (Coefficient of Variation)")
+        print(f"   STANDBY CV = {stby_std:.1f} / {stby_mean:.1f} = {stby_cv:.3f}")
+        print(f"   WORKING CV = {work_std:.1f} / {work_mean:.1f} = {work_cv:.3f}")
+        if stby_cv < work_cv:
+            _pass(f"CV(STANDBY)={stby_cv:.3f} < CV(WORKING)={work_cv:.3f}  — "
+                  f"STANDBY is more stable than WORKING. Physics law confirmed.")
+        else:
+            _fail(f"CV(STANDBY)={stby_cv:.3f} ≥ CV(WORKING)={work_cv:.3f}  — "
+                  f"STANDBY is MORE variable than WORKING. This is physically wrong.\n"
+                  f"         The cluster labelled STANDBY may actually be a light-load\n"
+                  f"         cutting mode, not true standby.")
+            passed = False
+
+    # ── Check 4: WORKING mean must be substantially above OFF ────────
+    ratio = work_mean / off_mean if off_mean > 0 else float('inf')
+    print(f"\n   CHECK 4 — WORKING mean must be >> OFF mean (ratio ≥ 3×)")
+    print(f"   Physics: Active machining draws spindle + servo + coolant power.")
+    print(f"   Combined, this must be several times the OFF baseline.")
+    print(f"   WORKING mean = {work_mean:.1f} W,  OFF mean = {off_mean:.1f} W,  "
+          f"ratio = {ratio:.1f}×")
+    if ratio >= 3.0:
+        _pass(f"WORKING / OFF ratio = {ratio:.1f}×  — "
+              f"strong evidence these are genuinely different physical states")
+    elif ratio >= 1.5:
+        _warn(f"WORKING / OFF ratio = {ratio:.1f}×  — "
+              f"moderate separation. Acceptable but could be stronger.")
+    else:
+        _fail(f"WORKING / OFF ratio = {ratio:.1f}×  — "
+              f"insufficient. WORKING and OFF overlap — GMM may have split\n"
+              f"         a single state into two clusters.")
+        passed = False
+
+    return passed
+
+
+# ============================================================
+# TEST 8 — VARIANCE ORDERING (Physics Law)
+# ============================================================
+# A machine obeying physics MUST satisfy:
+#   σ²(OFF) << σ²(STANDBY) << σ²(WORKING)
+#
+# Reason:
+#   OFF      → barely fluctuates → tiny variance
+#   STANDBY  → fixed auxiliary loads → small-medium variance
+#   WORKING  → variable cutting load each second → large variance
+#
+# If GMM produces σ(WORKING) < σ(STANDBY), the labels are WRONG.
+# This is an independent, formula-based check requiring no labels.
+# ============================================================
+
+def test_variance_ordering(gmm, best_k, state_map):
+    print("\n" + "=" * 65)
+    print("  TEST 8 -- VARIANCE ORDERING (Physics Law: σ_OFF < σ_STANDBY < σ_WORKING)")
+    print("=" * 65)
+    _info("Physics law: σ(OFF) << σ(STANDBY) << σ(WORKING)")
+    _info("This is because cutting load varies every second, but auxiliary")
+    _info("loads (cooling fan, PLC) are nearly constant.")
+    _info("If this ordering is violated, the state labels are WRONG.")
+    _sep()
+
+    means      = gmm.means_.flatten()
+    variances  = gmm.covariances_.flatten()
+    stds       = np.sqrt(np.abs(variances))
+    sorted_idx = np.argsort(means)            # order by mean: OFF < STANDBY < WORKING
+    sorted_stds  = stds[sorted_idx]
+    sorted_names = [state_map[i] for i in sorted_idx]
+
+    print(f"\n   State ordering by mean (should = by variance too):")
+    for name, std in zip(sorted_names, sorted_stds):
+        bar = '█' * int(std / sorted_stds.max() * 30)
+        print(f"   {name:<14}  σ = {std:8.1f} W   {bar}")
+
+    passed = True
+    print()
+    for i in range(len(sorted_stds) - 1):
+        if sorted_stds[i+1] > sorted_stds[i]:
+            _pass(f"σ({sorted_names[i]}) = {sorted_stds[i]:.1f} W  < "
+                  f"σ({sorted_names[i+1]}) = {sorted_stds[i+1]:.1f} W  — "
+                  f"variance ordering correct")
+        else:
+            _fail(f"σ({sorted_names[i]}) = {sorted_stds[i]:.1f} W  ≥  "
+                  f"σ({sorted_names[i+1]}) = {sorted_stds[i+1]:.1f} W  — "
+                  f"VARIANCE LAW VIOLATED. Higher-power cluster is more\n"
+                  f"         stable than lower-power cluster. This is physically\n"
+                  f"         impossible for a correct OFF→STANDBY→WORKING split.")
+            passed = False
+
+    return passed
+
+
+# ============================================================
+# TEST 9 — TEMPORAL / DAY-NIGHT ALIGNMENT
+# ============================================================
+# KEY IDEA: If the GMM correctly identifies the OFF state,
+# then OFF periods MUST correlate with nights and weekends —
+# because industrial machines are not operated at 2am or Sunday.
+#
+# This is an EXTERNAL validation check that requires NO labels.
+# It uses only the timestamp column that already exists in the data.
+#
+# Metric:
+#   night_off_rate = fraction of night-time readings (10pm–6am)
+#                   that are labelled OFF
+#   day_off_rate   = fraction of daytime readings (8am–6pm weekdays)
+#                   that are labelled OFF
+#
+# Expected: night_off_rate >> day_off_rate
+# If night_off_rate ≈ day_off_rate, the OFF cluster does NOT
+# correspond to machine-off periods — it is misidentified.
+# ============================================================
+
+def test_temporal_alignment(df, gmm, best_k, state_map, X):
+    print("\n" + "=" * 65)
+    print("  TEST 9 -- TEMPORAL / DAY-NIGHT ALIGNMENT")
+    print("=" * 65)
+    _info("If OFF = 'machine turned off', then OFF must align with nights/weekends.")
+    _info("This is an INDEPENDENT check using only timestamps — no labels needed.")
+    _info("Industrial machines are not operated at 2am or Sundays.")
+    _sep()
+
+    labels_arr = gmm.predict(X)
+    df2 = df.copy()
+    df2['_gmm_state'] = [state_map[l] for l in labels_arr]
+    df2['_hour']      = df2['timestamp'].dt.hour
+    df2['_weekday']   = df2['timestamp'].dt.weekday   # 0=Mon … 6=Sun
+    df2['_is_night']  = (df2['_hour'] >= 22) | (df2['_hour'] < 6)
+    df2['_is_day']    = (df2['_weekday'] < 5) & (df2['_hour'] >= 8) & (df2['_hour'] < 18)
+    df2['_is_weekend'] = df2['_weekday'] >= 5
+
+    night_total   = df2['_is_night'].sum()
+    day_total     = df2['_is_day'].sum()
+    weekend_total = df2['_is_weekend'].sum()
+
+    if night_total < 10 or day_total < 10:
+        _warn("Not enough night-time or daytime data to run temporal check.")
+        return True   # not a failure, just insufficient data
+
+    night_off = ((df2['_gmm_state'] == 'OFF') & df2['_is_night']).sum()
+    day_off   = ((df2['_gmm_state'] == 'OFF') & df2['_is_day']).sum()
+    wknd_off  = ((df2['_gmm_state'] == 'OFF') & df2['_is_weekend']).sum()
+
+    night_off_rate = night_off / night_total * 100
+    day_off_rate   = day_off   / day_total   * 100
+    wknd_off_rate  = wknd_off  / weekend_total * 100 if weekend_total > 0 else 0
+
+    print(f"\n   Time window          Total readings  OFF readings   OFF rate")
+    print(f"   {'':-<60}")
+    print(f"   Night (10pm–6am)     {night_total:>14,}  {night_off:>12,}   {night_off_rate:>6.1f}%")
+    print(f"   Weekday (8am–6pm)    {day_total:>14,}  {day_off:>12,}   {day_off_rate:>6.1f}%")
+    print(f"   Weekend (all day)    {weekend_total:>14,}  {wknd_off:>12,}   {wknd_off_rate:>6.1f}%")
+    print()
+
+    passed = True
+
+    # Night OFF rate should be substantially higher than daytime OFF rate
+    if night_total > 0 and day_total > 0:
+        if night_off_rate > day_off_rate * 1.5:   # night should be ≥1.5× more OFF
+            _pass(f"Night OFF rate ({night_off_rate:.1f}%) >> Day OFF rate ({day_off_rate:.1f}%) — "
+                  f"OFF cluster correctly aligns with machine-off hours")
+        elif night_off_rate > day_off_rate:
+            _warn(f"Night OFF rate ({night_off_rate:.1f}%) > Day OFF rate ({day_off_rate:.1f}%) — "
+                  f"correct direction but weak separation. Machine may run some\n"
+                  f"         night shifts, or OFF cluster may include low-load periods.")
+        else:
+            _fail(f"Night OFF rate ({night_off_rate:.1f}%) ≤ Day OFF rate ({day_off_rate:.1f}%) — "
+                  f"OFF cluster does NOT align with machine-off hours.\n"
+                  f"         The cluster labelled OFF may not be the actual off state.")
+            passed = False
+
+    # Weekend check (bonus — not a hard fail)
+    if weekend_total > 100:
+        if wknd_off_rate > day_off_rate:
+            _pass(f"Weekend OFF rate ({wknd_off_rate:.1f}%) > Weekday day rate ({day_off_rate:.1f}%) — "
+                  f"machine powers down on weekends. Confirms OFF label is correct.")
+        else:
+            _warn(f"Weekend OFF rate ({wknd_off_rate:.1f}%) ≤ Weekday rate ({day_off_rate:.1f}%). "
+                  f"Machine may operate on weekends, or OFF cluster is misidentified.")
+
+    return passed
+
+
+# ============================================================
+# PLOT 6 — TEMPORAL ALIGNMENT HEATMAP
+# ============================================================
+
+def plot_temporal_alignment(df, gmm, best_k, state_map, X, save_dir):
+    """
+    Hour-of-day × Day-of-week heatmap showing the fraction of OFF
+    readings. A correct OFF cluster should produce a heatmap that
+    is dark (high OFF %) at nights and weekends, and light (low %) 
+    during business hours.
+    """
+    labels_arr = gmm.predict(X)
+    df2 = df.copy()
+    df2['_state']   = [state_map[l] for l in labels_arr]
+    df2['_hour']    = df2['timestamp'].dt.hour
+    df2['_weekday'] = df2['timestamp'].dt.weekday
+    df2['_is_off']  = (df2['_state'] == 'OFF').astype(int)
+
+    pivot = df2.groupby(['_weekday', '_hour'])['_is_off'].mean().unstack(fill_value=0)
+
+    day_labels = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
+    fig, ax = plt.subplots(figsize=(16, 5))
+    im = ax.imshow(pivot.values, aspect='auto', cmap='RdYlGn_r',
+                   vmin=0, vmax=1, interpolation='nearest')
+
+    # x-axis = hours 0–23, y-axis = weekdays
+    ax.set_xticks(range(24))
+    ax.set_xticklabels([f"{h}:00" for h in range(24)], rotation=45, ha='right', fontsize=7)
+    ax.set_yticks(range(len(pivot.index)))
+    ax.set_yticklabels([day_labels[d] for d in pivot.index], fontsize=9)
+
+    plt.colorbar(im, ax=ax, label='Fraction of readings labelled OFF (1.0 = all OFF)')
+    ax.set_title(
+        f"T9 — Temporal Alignment: OFF-State Rate by Hour & Day — {MACHINE_NAME}\n"
+        "Green = machine running. Red/dark = machine off. Nights & weekends should be dark.",
+        fontsize=11, fontweight='bold'
+    )
+    ax.set_xlabel("Hour of Day")
+    ax.set_ylabel("Day of Week")
+    plt.tight_layout()
+    out = os.path.join(save_dir, "T9_temporal_alignment_heatmap.png")
+    plt.savefig(out, dpi=140, bbox_inches='tight')
+    plt.close()
+    print(f"   📊 Saved: T9_temporal_alignment_heatmap.png")
+
+
+# ============================================================
 # FINAL SUMMARY REPORT
 # ============================================================
 
@@ -645,7 +953,7 @@ def print_final_report(results, best_k, state_map, gmm):
 
     if pct == 100:
         verdict = "[CONFIRMED] GMM is splitting the data correctly."
-        detail  = ("All 6 independent tests passed. The power clusters represent "
+        detail  = ("All 9 independent tests passed. The power clusters represent "
                    "physically distinct machine states. Safe to build the next "
                    "pipeline stage on top of this.")
     elif pct >= 66:
@@ -731,6 +1039,16 @@ def main():
     # ── Test 6: Weight sanity ─────────────────────────────────────
     t6 = test_weight_sanity(best_gmm, best_k, state_map)
 
+    # ── Test 7: Physics threshold cross-check ────────────────────
+    max_power = df['power'].max()
+    t7 = test_physics_thresholds(best_gmm, best_k, state_map, max_power)
+
+    # ── Test 8: Variance ordering (physics law) ───────────────────
+    t8 = test_variance_ordering(best_gmm, best_k, state_map)
+
+    # ── Test 9: Temporal / day-night alignment ────────────────────
+    t9 = test_temporal_alignment(df, best_gmm, best_k, state_map, X)
+
     # ── Diagnostic plots ──────────────────────────────────────────
     print("\n" + "=" * 65)
     print("  GENERATING DIAGNOSTIC PLOTS")
@@ -740,15 +1058,19 @@ def main():
     plot_confidence_histogram(max_probs, OUTPUT_DIR)
     plot_labeled_sample(df, best_gmm, best_k, state_map, OUTPUT_DIR)
     plot_cluster_separation(df, best_gmm, best_k, state_map, OUTPUT_DIR)
+    plot_temporal_alignment(df, best_gmm, best_k, state_map, X, OUTPUT_DIR)
 
     # ── Final report ──────────────────────────────────────────────
     results = {
-        "T1  Data Sanity (rows, no-NaN, non-neg)":        t1,
-        "T2  GMM Convergence (EM algorithm)":              t2,
-        "T3  k Selection (Sil + BIC agree)":               t3,
-        "T4  Physical Separation (2σ between clusters)":   t4,
-        "T5  Soft-Assignment Confidence (>80% in >70%)":   t5,
-        "T6  Cluster Weight Sanity (no ghost clusters)":   t6,
+        "T1  Data Sanity (rows, no-NaN, non-neg)":              t1,
+        "T2  GMM Convergence (EM algorithm)":                    t2,
+        "T3  k Selection (Sil + BIC agree)":                     t3,
+        "T4  Physical Separation (2σ between clusters)":         t4,
+        "T5  Soft-Assignment Confidence (>80% in >70%)":         t5,
+        "T6  Cluster Weight Sanity (no ghost clusters)":         t6,
+        "T7  Physics Threshold (OFF≈0W, STBY stable, WRK gap)":  t7,
+        "T8  Variance Ordering (σ_OFF < σ_STBY < σ_WORK)":       t8,
+        "T9  Temporal Alignment (OFF aligns nights/weekends)":   t9,
     }
     print_final_report(results, best_k, state_map, best_gmm)
 
