@@ -738,7 +738,8 @@ def method2_current_ratio(df_clean: pd.DataFrame,
         return None, None, None
 
     # ── Step A: derive thresholds from raw data (no STATE_COL) ─────────
-    live_current = df_clean.loc[df_clean["current"] > 0.1, "current"]
+    # FIX: Filter out the OFF state (active_power < 5W) so P10 doesn't capture the OFF-current baseline
+    live_current = df_clean.loc[df_clean["active_power"] >= 5.0, "current"]
     if len(live_current) < 100:
         _warn("Fewer than 100 readings with current > 0.1 A — cannot derive threshold")
         return False, None, None
