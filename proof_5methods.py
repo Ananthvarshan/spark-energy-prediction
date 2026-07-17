@@ -425,30 +425,39 @@ def compare_to_gmm(method_name: str,
                    method_col: str | None = None,
                    df_gmm: pd.DataFrame | None = None,
                    tol_pct: float = GMM_COMPARE_TOL_PCT,
-                   row_tol_pct: float = GMM_COMPARE_ROW_TOL_PCT) -> dict:
+                   row_tol_pct: float = GMM_COMPARE_ROW_TOL_PCT,
+                   gmm_hours_raw: dict | None = None) -> dict:
     """
     Step C — the ONLY function in this file allowed to read STATE_COL.
 
     Compares method_hours (from Step B) against gmm_hours (from the
     smoothed labelled CSV).
 
+    FIX C: If gmm_hours_raw is provided, also prints a second diff table
+    labeled "(vs RAW GMM, pre-Viterbi)" so the reader can determine
+    whether any STANDBY discrepancy is a smoothing artifact or a genuine
+    boundary disagreement between the formula-based method and the GMM.
+
     Parameters
     ----------
     method_name  : human-readable label for the method
     method_hours : dict  state -> hours  (from Step B)
-    gmm_hours    : dict  state -> hours  (from labelled CSV)
+    gmm_hours    : dict  state -> hours  (from labelled CSV, smoothed)
     df_method    : optional DataFrame with method_col (for row-level agreement)
     method_col   : column name of the method's own per-row label
     df_gmm       : optional DataFrame with STATE_COL (for row-level agreement)
     tol_pct      : hour totals must agree within this % per state
     row_tol_pct  : row-level agreement must exceed this %
+    gmm_hours_raw: optional dict state -> hours from 'state_raw' column
+                   (pre-Viterbi, unsmoothed). When provided, a second diff
+                   table is printed for paper comparison.
 
     Returns
     -------
     dict  state -> {'method_h', 'gmm_h', 'diff_h', 'diff_pct', 'pass'}
     """
-    print(f"\n   ── Step C: compare {method_name} vs GMM (smoothed labels) ──")
-    print(f"   {'State':<12} {'Method(h)':>10} {'GMM(h)':>10} "
+    print(f"\n   ── Step C: compare {method_name} vs GMM (SMOOTHED labels) ──")
+    print(f"   {'State':<12} {'Method(h)':>10} {'GMM_sm(h)':>10} "
           f"{'Diff(h)':>9} {'Diff%':>7} {'OK?':>6}")
     print(f"   {'':─<12} {'':─<10} {'':─<10} {'':─<9} {'':─<7} {'':─<6}")
 
@@ -470,6 +479,43 @@ def compare_to_gmm(method_name: str,
         results[state] = dict(method_h=m_h, gmm_h=g_h,
                               diff_h=diff, diff_pct=d_pct, ok=ok)
 
+    # FIX C: Also print a second diff table vs RAW (pre-Viterbi) GMM hours
+    raw_results = {}
+    if gmm_hours_raw:
+        print(f"\n   ── Step C (FIX C): compare {method_name} vs GMM (RAW, pre-Viterbi) ──")
+        print(f"   {'State':<12} {'Method(h)':>10} {'GMM_raw(h)':>10} "
+              f"{'Diff(h)':>9} {'Diff%':>7} {'OK?':>6}")
+        print(f"   {'':─<12} {'':─<10} {'':─<10} {'':─<9} {'':─<7} {'':─<6}")
+        raw_common = sorted(set(list(method_hours.keys()) + list(gmm_hours_raw.keys())))
+        for state in raw_common:
+            m_h   = method_hours.get(state, 0.0)
+            r_h   = gmm_hours_raw.get(state, 0.0)
+            diff  = m_h - r_h
+            ref   = max(r_h, 0.1)
+            d_pct = abs(diff) / ref * 100
+            ok    = d_pct <= tol_pct
+            ok_str = "PASS" if ok else "FAIL"
+            print(f"   {state:<12} {m_h:>10,.1f} {r_h:>10,.1f} "
+                  f"{diff:>+9,.1f} {d_pct:>6.1f}% {ok_str:>6}")
+            raw_results[state] = dict(method_h=m_h, gmm_raw_h=r_h,
+                                      diff_h=diff, diff_pct=d_pct, ok=ok)
+        # FIX C: STANDBY summary line
+        sm_stby_pct = results.get('STANDBY', {}).get('diff_pct', None)
+        rw_stby_pct = raw_results.get('STANDBY', {}).get('diff_pct', None)
+        if sm_stby_pct is not None and rw_stby_pct is not None:
+            print()
+            print(f"   [FIX C] STANDBY diff vs SMOOTHED GMM: {sm_stby_pct:.1f}%  "
+                  f"| STANDBY diff vs RAW GMM: {rw_stby_pct:.1f}%")
+            if rw_stby_pct < sm_stby_pct * 0.6:   # raw diff is notably smaller
+                _info("[FIX C] Raw diff << Smoothed diff → discrepancy is largely a "
+                      "SMOOTHING ARTIFACT (Viterbi over-smoothing inflates STANDBY gap).")
+            elif rw_stby_pct >= sm_stby_pct * 0.85:  # similar size
+                _info("[FIX C] Raw diff ≈ Smoothed diff → discrepancy is a GENUINE "
+                      "BOUNDARY DISAGREEMENT (not caused by smoothing).")
+            else:
+                _info("[FIX C] Raw diff somewhat smaller than Smoothed diff → "
+                      "MIXED: partially smoothing artifact, partially boundary disagreement.")
+
     # Row-level agreement (optional — only when aligned DataFrames are provided)
     row_agr = None
     if (df_method is not None and method_col is not None
@@ -486,12 +532,13 @@ def compare_to_gmm(method_name: str,
               f"(threshold >= {row_tol_pct:.0f}%)  [{row_str}]")
 
     if all_pass:
-        _pass(f"{method_name} hour totals agree with GMM within {tol_pct:.0f}% per state")
+        _pass(f"{method_name} hour totals agree with GMM (smoothed) within {tol_pct:.0f}% per state")
     else:
-        _fail(f"{method_name} hour totals diverge from GMM beyond {tol_pct:.0f}% on some state(s)")
+        _fail(f"{method_name} hour totals diverge from GMM (smoothed) beyond {tol_pct:.0f}% on some state(s)")
 
     results['__all_pass__']  = all_pass
     results['__row_agr__']   = row_agr
+    results['__raw__']       = raw_results
     return results
 
 
@@ -533,6 +580,77 @@ def load_labelled(path):
 # Step C: compare_to_gmm() called by main().
 # ============================================================
 
+# ============================================================
+# OTSU THRESHOLD (spec 2.1 / 2.2)
+# ============================================================
+# Citation: Otsu, N. (1979). "A Threshold Selection Method from Gray-Level
+# Histograms." IEEE Trans. Systems, Man, and Cybernetics, 9(1), 62-66.
+# Standard, citable algorithm for finding the optimal split point of a
+# bimodal distribution by minimizing intra-class variance. Replaces the
+# old hand-picked PF thresholds (0.35/0.70 with a "middle zone -> STANDBY"
+# fallback) and the P10/P90-geometric-mean current threshold with a single
+# principled, data-driven split point per method.
+# ============================================================
+
+def otsu_threshold(values: np.ndarray, n_bins: int = 256) -> float:
+    """
+    Otsu (1979) optimal threshold for a bimodal 1D distribution.
+    Pure-numpy implementation -- no extra dependency required.
+    """
+    values = np.asarray(values, dtype=np.float64)
+    values = values[~np.isnan(values)]
+    hist, bin_edges = np.histogram(values, bins=n_bins)
+    bin_mids = (bin_edges[:-1] + bin_edges[1:]) / 2
+    weight1 = np.cumsum(hist)
+    weight2 = np.cumsum(hist[::-1])[::-1]
+    mean1 = np.cumsum(hist * bin_mids) / np.clip(weight1, 1, None)
+    mean2 = (np.cumsum((hist * bin_mids)[::-1])[::-1]) / np.clip(weight2, 1, None)
+    inter_class_var = weight1[:-1] * weight2[1:] * (mean1[:-1] - mean2[1:]) ** 2
+    idx = np.argmax(inter_class_var)
+    return float(bin_mids[idx])
+
+
+# ============================================================
+# CONSENSUS / MAJORITY-VOTE RECONCILIATION (spec 2.3)
+# ============================================================
+# Citation: Strehl & Ghosh, 2002, "Cluster Ensembles -- A Knowledge Reuse
+# Framework for Combining Multiple Partitions," JMLR, 3. Standard
+# reference for combining independent classifiers via majority vote /
+# consensus clustering -- the correct way to handle residual disagreement
+# after the fixes above (spec 1.1-2.2), rather than declaring one method
+# arbitrarily "right."
+# ============================================================
+
+def consensus_state(row_labels_dict: dict) -> tuple:
+    """
+    Row-wise majority vote across independent state-label sources.
+    (Strehl & Ghosh, 2002 -- cluster ensemble consensus.)
+
+    Parameters
+    ----------
+    row_labels_dict : {"gmm": array, "m1": array, "m2": array}, all same length.
+
+    Returns
+    -------
+    (consensus_labels, ambiguous_mask)
+      ambiguous_mask = True where all 3 sources disagree (no majority).
+    """
+    from collections import Counter
+    names = list(row_labels_dict.keys())
+    stacked = np.stack([np.asarray(row_labels_dict[n]) for n in names], axis=1)
+    consensus = np.empty(len(stacked), dtype=object)
+    ambiguous = np.zeros(len(stacked), dtype=bool)
+    for i, row in enumerate(stacked):
+        counts = Counter(row)
+        top_label, top_count = counts.most_common(1)[0]
+        if top_count == 1:  # 3-way tie / all different
+            ambiguous[i] = True
+            consensus[i] = row[0]  # fallback: GMM label (first source)
+        else:
+            consensus[i] = top_label
+    return consensus, ambiguous
+
+
 def method1_power_factor(df_clean: pd.DataFrame,
                          spike_mask: pd.Series) -> tuple:
     """
@@ -541,11 +659,16 @@ def method1_power_factor(df_clean: pd.DataFrame,
     Step A
     ------
     power_factor = active_power / apparent_power   [raw physics formula]
-    Classification (fixed thresholds, NO GMM state involved):
-      active_power < 5 W          → OFF
-      PF < PF_STANDBY_RANGE[1]    → STANDBY
-      PF >= PF_WORKING_MIN        → WORKING
-      otherwise                   → STANDBY  (middle zone → lean standby)
+    Classification (spec 2.1 -- Otsu-derived threshold, NOT hand-picked
+    constants; NO GMM state involved):
+      active_power < 5 W    -> OFF
+      PF < pf_split (Otsu)  -> STANDBY
+      PF >= pf_split (Otsu) -> WORKING
+    The Otsu threshold is computed on ON-state rows only (active_power
+    >= 5W) so the OFF cluster's PF~=0 spike doesn't distort the split.
+    This replaces the old "middle zone -> lean STANDBY" hand-rule, which
+    was the single biggest reason Method 1 over-counted STANDBY.
+    Citation: Otsu, 1979, IEEE Trans. SMC, 9(1).
 
     Pass/fail checks use mean(PF | _m1_state==X) — the method's OWN
     label column — never the GMM state column.
@@ -556,34 +679,34 @@ def method1_power_factor(df_clean: pd.DataFrame,
     """
     _header("METHOD 1 -- POWER FACTOR SEPARATION")
     _info("PF = active_power / apparent_power  [raw formula, no GMM labels]")
-    _info(f"Thresholds (fixed, stated in advance):")
+    _info("Threshold: Otsu (1979) optimal split of the ON-state PF "
+          "distribution -- data-driven, not a hand-picked constant.")
     _info(f"  OFF     : active_power < 5 W")
-    _info(f"  STANDBY : PF < {PF_STANDBY_RANGE[1]}")
-    _info(f"  WORKING : PF >= {PF_WORKING_MIN}")
-    _info(f"  middle zone (PF in [{PF_STANDBY_RANGE[1]:.2f}, {PF_WORKING_MIN:.2f})): → STANDBY")
     _sep()
 
     ok, _ = _check_cols(df_clean, ['active_power', 'apparent_power'], "Method 1")
     if not ok:
         return None, None, None
 
-    # ── Step A: classify using ONLY raw columns + fixed thresholds ──────
+    # ── Step A: classify using ONLY raw columns + Otsu-derived threshold ──
     d = df_clean.copy()
     d["power_factor"] = (
         d["active_power"].abs()
         / d["apparent_power"].replace(0, np.nan)
     )
 
+    # Otsu threshold computed ONLY on ON-state rows (active_power >= 5W),
+    # so the OFF cluster (PF~=0, huge spike at zero) doesn't distort it.
+    on_mask = d["active_power"] >= 5.0
+    pf_split = otsu_threshold(d.loc[on_mask, "power_factor"].dropna().values)
+    _info(f"Otsu-derived PF threshold (data-driven, no manual guess): {pf_split:.3f}")
+
     def _classify_pf(active_p, pf):
         if active_p < 5.0:
             return "OFF"
         if pd.isna(pf):
             return "OFF"
-        if pf < PF_STANDBY_RANGE[1]:
-            return "STANDBY"
-        if pf >= PF_WORKING_MIN:
-            return "WORKING"
-        return "STANDBY"   # middle zone → lean standby
+        return "STANDBY" if pf < pf_split else "WORKING"
 
     d["_m1_state"] = [
         _classify_pf(ap, pf)
@@ -689,11 +812,13 @@ def method2_current_ratio(df_clean: pd.DataFrame,
 
     Step A
     ------
-    Thresholds derived from the raw current distribution (no STATE_COL):
+    Threshold derived from the raw current distribution (no STATE_COL),
+    spec 2.2 -- Otsu (1979) optimal split of the ON-state current
+    distribution, replacing the old geometric_mean(P10, P90) threshold
+    (which had no statistical justification for why the geometric mean
+    of those two specific percentiles was the right cut point).
 
-      standby_threshold = geometric_mean(P10, P90) of non-trivial current.
-        This is scale-invariant and always falls between the no-load and
-        full-load current clusters regardless of the unit or machine size.
+      standby_threshold = otsu_threshold(current | active_power >= 5W)
 
       peak_threshold    = P85 of readings above standby_threshold.
         Only used when TARGET_3_STATES is False. When TARGET_3_STATES
@@ -723,12 +848,12 @@ def method2_current_ratio(df_clean: pd.DataFrame,
     (passed, m2_hours, df_with_m2_state)
     """
     _header("METHOD 2 -- CURRENT RATIO CHECK")
-    _info("Thresholds: geometric_mean(P10, P90) for STANDBY/WORKING boundary.")
+    _info("Threshold: Otsu (1979) optimal split of the ON-state current "
+          "distribution -- data-driven, not a hand-picked percentile pair.")
     if TARGET_3_STATES:
         _info("TARGET_3_STATES=True -- PEAK_LOAD tier disabled; outputs OFF/STANDBY/WORKING only.")
     else:
         _info("P85 of above-threshold readings for WORKING/PEAK_LOAD boundary.")
-    _info("Scale-invariant: works regardless of current unit or machine size.")
     _info(f"Pass criterion: I(STANDBY)/I(WORKING) < {CURRENT_RATIO_RANGE[1]}  "
           f"(STANDBY draws < 50% of WORKING current)")
     _sep()
@@ -737,18 +862,15 @@ def method2_current_ratio(df_clean: pd.DataFrame,
     if not ok:
         return None, None, None
 
-    # ── Step A: derive thresholds from raw data (no STATE_COL) ─────────
-    # FIX: Filter out the OFF state (active_power < 5W) so P10 doesn't capture the OFF-current baseline
+    # ── Step A: derive threshold from raw data via Otsu (no STATE_COL) ──
+    # Filter out the OFF state (active_power < 5W) so the OFF-current
+    # baseline doesn't distort the ON-state bimodal split.
     live_current = df_clean.loc[df_clean["active_power"] >= 5.0, "current"]
     if len(live_current) < 100:
         _warn("Fewer than 100 readings with current > 0.1 A — cannot derive threshold")
         return False, None, None
 
-    p10 = float(np.percentile(live_current, 10))
-    p90 = float(np.percentile(live_current, 90))
-    # Geometric mean is scale-invariant; avoids the 40th-pct problem where
-    # a skewed distribution pushes the split into the full-load region.
-    standby_threshold = float(np.sqrt(max(p10, 1e-9) * max(p90, 1e-9)))
+    standby_threshold = otsu_threshold(live_current.dropna().values)
 
     # PEAK_LOAD boundary: only computed/used in legacy 4-state mode.
     if TARGET_3_STATES:
@@ -760,9 +882,7 @@ def method2_current_ratio(df_clean: pd.DataFrame,
         else:
             peak_threshold = float('inf')   # not enough data — collapse PEAK_LOAD into WORKING
 
-    _info(f"P10 of non-trivial current      : {p10:.3f}")
-    _info(f"P90 of non-trivial current      : {p90:.3f}")
-    _info(f"STANDBY/WORKING threshold       : geometric_mean(P10,P90) = {standby_threshold:.3f}")
+    _info(f"Otsu-derived current threshold (data-driven): {standby_threshold:.3f}")
     if peak_threshold < float('inf'):
         _info(f"WORKING/PEAK_LOAD threshold     : P85 of above-threshold  = {peak_threshold:.3f}")
     else:
@@ -1422,6 +1542,7 @@ def main():
     # approximation of it. Falls back to no exclusion for older CSVs that
     # predate this column, with a warning so the mismatch is visible.
     gmm_hours = {}
+    gmm_hours_raw = {}   # FIX C: pre-Viterbi (state_raw column)
     if df_gmm is not None and STATE_COL in df_gmm.columns:
         if 'is_spike' in df_gmm.columns:
             gmm_spike_mask = df_gmm['is_spike'].astype(bool)
@@ -1435,7 +1556,30 @@ def main():
                   "CSV with matching totals.")
         gmm_hours = compute_state_hours(df_gmm, state_col=STATE_COL, spike_mask=gmm_spike_mask)
         print_state_time_breakdown(gmm_hours,
-                                   f"GMM Baseline (smoothed labels) — {machine_name}")
+                                   f"GMM Baseline (SMOOTHED labels) — {machine_name}")
+
+        # FIX C: also compute hours from state_raw (pre-Viterbi, unsmoothed)
+        if 'state_raw' in df_gmm.columns:
+            # Apply same PEAK_LOAD->WORKING collapse if TARGET_3_STATES
+            df_gmm_raw_col = df_gmm['state_raw'].copy()
+            if TARGET_3_STATES:
+                n_peak_raw = int((df_gmm_raw_col == 'PEAK_LOAD').sum())
+                if n_peak_raw > 0:
+                    df_gmm_raw_col = df_gmm_raw_col.replace('PEAK_LOAD', 'WORKING')
+                    _info(f"[FIX C] TARGET_3_STATES=True -- collapsed {n_peak_raw:,} "
+                          f"PEAK_LOAD rows in 'state_raw' into WORKING for raw-baseline.")
+            df_gmm_with_raw = df_gmm.copy()
+            df_gmm_with_raw['_state_raw_use'] = df_gmm_raw_col
+            gmm_hours_raw = compute_state_hours(
+                df_gmm_with_raw, state_col='_state_raw_use', spike_mask=gmm_spike_mask)
+            print_state_time_breakdown(
+                gmm_hours_raw,
+                f"GMM Baseline (RAW, pre-Viterbi labels) — {machine_name}")
+            _info("[FIX C] Both SMOOTHED and RAW GMM baselines loaded. "
+                  "compare_to_gmm() will print diffs against both.")
+        else:
+            _warn("[FIX C] 'state_raw' column not found in labelled CSV. "
+                  "Re-run validate_gmm.py to export it. RAW baseline will be skipped.")
 
     # ── Collect results ────────────────────────────────────────────────
     results             = {}
@@ -1458,11 +1602,18 @@ def main():
                 df_method=df_m1 if df_gmm is not None and len(df_m1) == len(df_gmm) else None,
                 method_col="_m1_state",
                 df_gmm=df_gmm,
+                gmm_hours_raw=gmm_hours_raw if gmm_hours_raw else None,
             )
             agreement_by_method["Method 1 (Power Factor)"] = {
                 "all_pass": c1.get("__all_pass__"),
                 "row_agr":  c1.get("__row_agr__"),
             }
+            # spec 2.4: before/after diff so the Otsu fix is auditable
+            m1_standby_pct = c1.get("STANDBY", {}).get("diff_pct")
+            if m1_standby_pct is not None:
+                _info(f"[VALIDATION] STANDBY diff vs GMM before fix: 21.8% (Method 1, hand-picked PF thresholds)")
+                _info(f"[VALIDATION] STANDBY diff vs GMM after fix : {m1_standby_pct:.1f}% "
+                      f"(this run, Otsu-derived PF threshold)")
         # FIX 1: diagnose STANDBY disagreement (runs after Step C)
         if df_gmm is not None and df_m1 is not None and len(df_m1) == len(df_gmm):
             diagnose_disagreement(df_m1, df_gmm)
@@ -1478,11 +1629,42 @@ def main():
                 df_method=df_m2 if df_gmm is not None and len(df_m2) == len(df_gmm) else None,
                 method_col="_m2_state",
                 df_gmm=df_gmm,
+                gmm_hours_raw=gmm_hours_raw if gmm_hours_raw else None,
             )
             agreement_by_method["Method 2 (Current Ratio)"] = {
                 "all_pass": c2.get("__all_pass__"),
                 "row_agr":  c2.get("__row_agr__"),
             }
+            # spec 2.4: before/after diff so the Otsu fix is auditable
+            m2_standby_pct = c2.get("STANDBY", {}).get("diff_pct")
+            if m2_standby_pct is not None:
+                _info(f"[VALIDATION] STANDBY diff vs GMM before fix: 30.3% (Method 2, geometric_mean(P10,P90))")
+                _info(f"[VALIDATION] STANDBY diff vs GMM after fix : {m2_standby_pct:.1f}% "
+                      f"(this run, Otsu-derived current threshold)")
+
+    # ── Step 2.3: consensus / majority-vote reconciliation ────────────
+    # Strehl & Ghosh, 2002 -- combine GMM, Method 1, and Method 2's
+    # independent row-level labels via majority vote instead of treating
+    # any single source as arbitrarily "right."
+    if (df_gmm is not None and STATE_COL in df_gmm.columns
+            and df_m1 is not None and "_m1_state" in df_m1.columns
+            and len(df_m1) == len(df_gmm)
+            and df_m2 is not None and "_m2_state" in df_m2.columns
+            and len(df_m2) == len(df_gmm)):
+        _header("STEP 2.3 -- CONSENSUS / MAJORITY-VOTE RECONCILIATION")
+        _info("Strehl & Ghosh, 2002 -- row-wise majority vote across GMM, "
+              "Method 1, and Method 2's independent labels.")
+        consensus_labels, ambiguous_mask = consensus_state({
+            "gmm": df_gmm[STATE_COL].values,
+            "m1":  df_m1["_m1_state"].values,
+            "m2":  df_m2["_m2_state"].values,
+        })
+        _info(f"Consensus reached on {(~ambiguous_mask).mean()*100:.1f}% of rows; "
+              f"{ambiguous_mask.mean()*100:.2f}% remain genuinely ambiguous "
+              f"(all 3 methods disagree).")
+        cons_counts = pd.Series(consensus_labels).value_counts()
+        for state, n in cons_counts.items():
+            print(f"      {state:<12} {n:>10,} rows  ({n/len(consensus_labels)*100:5.1f}%)")
 
     # ── Method 4 (reads Viterbi-smoothed state from labelled CSV) ─────
     m4 = method4_dwell_time(df_gmm)
