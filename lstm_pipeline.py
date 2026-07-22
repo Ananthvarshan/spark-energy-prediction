@@ -279,6 +279,14 @@ def run_pipeline(machine_key: str, action_mode: str = "manual"):
 
     print(f"\n[pipeline] State encoding: {encoder}")
 
+    # ── Export Processed Dataset to a SEPARATE file (not overwriting raw/gmm data) ──
+    processed_dir = "outputs/processed_datasets"
+    os.makedirs(processed_dir, exist_ok=True)
+    processed_path = os.path.join(processed_dir, f"{machine_key}_processed_lstm_ready.csv")
+    df.to_csv(processed_path, index=False)
+    print(f"\n[pipeline] 💾 SEPARATE PROCESSED DATASET SAVED → {processed_path}")
+    print(f"            (Contains state labels, cyclical features, dwell times, and state IDs)")
+
     # Select feature columns (only those present in the DataFrame)
     feature_cols = [c for c in BASE_FEATURE_COLS if c in df.columns]
     print(f"\n[pipeline] Feature columns ({len(feature_cols)}): {feature_cols}")

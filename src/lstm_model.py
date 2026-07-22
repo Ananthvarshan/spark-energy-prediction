@@ -316,8 +316,53 @@ def evaluate_model(
         else:
             print("[lstm_model] WARNING: No STANDBY runs found in test set predictions.")
 
-    # ── Save report to file ───────────────────────────────────────────────────
+    # ── Save detailed test predictions for debugging ─────────────────────────
+    import pandas as pd
     os.makedirs(output_dir, exist_ok=True)
+    
+    # Detailed per-window prediction log (sample first 1000 test windows or all if smaller)
+    detailed_rows = []
+    n_samples = len(y_test)
+    sample_limit = min(n_samples, 2000)
+    for i in range(sample_limit):
+        # Take the middle or last step prediction of each horizon sequence
+        last_step = -1
+        true_cls_id = int(y_test[i, last_step])
+        pred_cls_id = int(pred_ids[i, last_step])
+        prob_vec = probs[i, last_step]
+        conf = float(prob_vec[pred_cls_id])
+        
+        row = {
+            "window_idx": i,
+            "true_state_id": true_cls_id,
+            "true_state_name": state_decoder.get(true_cls_id, str(true_cls_id)),
+            "pred_state_id": pred_cls_id,
+            "pred_state_name": state_decoder.get(pred_cls_id, str(pred_cls_id)),
+            "confidence": conf,
+            "is_correct": true_cls_id == pred_cls_id,
+        }
+        for cid, cname in state_decoder.items():
+            row[f"prob_{cname}"] = float(prob_vec[cid]) if cid < len(prob_vec) else 0.0
+        detailed_rows.append(row)
+        
+    detailed_df = pd.DataFrame(detailed_rows)
+    pred_log_path = os.path.join(output_dir, "test_predictions_detailed.csv")
+    detailed_df.to_csv(pred_log_path, index=False)
+    print(f"[lstm_model] Detailed test prediction log saved → {pred_log_path}")
+
+    # ── Save Confusion Matrix CSV ─────────────────────────────────────────────
+    from sklearn.metrics import confusion_matrix
+    cm = confusion_matrix(y_true_flat, y_pred_flat, labels=sorted(state_decoder.keys()))
+    cm_df = pd.DataFrame(
+        cm,
+        index=[f"True_{state_decoder[i]}" for i in sorted(state_decoder.keys())],
+        columns=[f"Pred_{state_decoder[i]}" for i in sorted(state_decoder.keys())]
+    )
+    cm_path = os.path.join(output_dir, "confusion_matrix.csv")
+    cm_df.to_csv(cm_path)
+    print(f"[lstm_model] Confusion matrix saved → {cm_path}")
+
+    # ── Save report to file ───────────────────────────────────────────────────
     report_path = os.path.join(output_dir, "test_evaluation.txt")
     with open(report_path, "w", encoding="utf-8") as fh:
         fh.write(f"Accuracy: {accuracy*100:.2f}%\n\n")
@@ -333,3 +378,4 @@ def evaluate_model(
         "classification_report": report,
         "standby_duration_mae_s": standby_mae_s,
     }
+

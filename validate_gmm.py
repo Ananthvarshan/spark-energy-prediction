@@ -82,7 +82,7 @@ if _machine_key not in MACHINES:
 DATA_PATH    = MACHINES[_machine_key]["path"]
 MACHINE_NAME = MACHINES[_machine_key]["name"]
 OUTPUT_DIR   = f"outputs/gmm_validation_imdeld/{_machine_key}"
-K_RANGE      = [2, 3, 4]
+K_RANGE      = [3]
 
 # IMDELD factory schedule (Brazil time UTC-3):
 #   Factory CLOSED every weekday 17:00-22:00 (electricity price tariff).

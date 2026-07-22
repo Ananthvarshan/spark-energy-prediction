@@ -1,192 +1,119 @@
 """
 ============================================================
-SPARK DATASET ANALYSER — main.py
+MASTER PIPELINE RUNNER — main.py
 ============================================================
 
-SPARK Dataset:
-  - 22 industrial machines (mills, lathes, chip presses, pumps)
-  - 1 photovoltaic (solar) system
-  - 5-second sampling rate
-  - 1 to 7 years of data per machine
-  - File format: .csv.xz (compressed)
+PURPOSE
+-------
+Single master entry point for the entire Industrial Energy State 
+Optimization pipeline.
 
-HOW TO USE:
------------
-OPTION A — Test with a SINGLE machine file:
-    Set MODE = "single"
-    Set DATA_PATH to your .csv or .csv.xz file
-    Run: python main.py
+Running this single script executes all stages end-to-end:
+  1. GMM State Detection & Validation (validate_gmm.py)
+  2. 5-Method Physics Proof Harness (proof_5methods.py)
+  3. Feature Engineering & Processed Dataset Export (outputs/processed_datasets/)
+  4. Seq2Seq LSTM Model Training, Diagnostics, & Action Layer (lstm_pipeline.py)
 
-OPTION B — Run on ALL 22 machines at once:
-    Set MODE = "multi"
-    Set SPARK_ROOT to your extracted SPARK dataset folder
-    Run: python main.py
+HOW TO RUN
+----------
+  python main.py                     # Runs default machine: pelletizer-I
+  python main.py pelletizer-II       # Runs specified machine
+  python main.py --mode automatic    # Runs with automatic PLC action mode
 
-OPTION C — Quick test with a small CSV (no download needed):
-    Set MODE = "single"
-    Place any small test CSV in data/dataset.csv
-    Run: python main.py
-
-DO I NEED TO DOWNLOAD THE FULL 76 GB?
-    NO! You can download just ONE machine file from SPARK.
-    Each machine file is typically 50MB–200MB compressed.
-    Just pick one .csv.xz file and test with that.
+OUTPUTS GENERATED
+-----------------
+  1. Base GMM Labelled CSV  → outputs/imdeld_labelled/<machine>_labelled.csv
+  2. Separate Processed CSV → outputs/processed_datasets/<machine>_processed_lstm_ready.csv
+  3. Model & Diagnostics   → outputs/models/<machine>/
+       - best_model.keras (Trained LSTM weights)
+       - state_encoder.json
+       - training_config.json
+       - training_history.csv
+       - test_evaluation.txt
+       - confusion_matrix.csv
+       - test_predictions_detailed.csv (Step-by-step diagnostic prediction log)
+  4. Action Recommendations → outputs/action_log/recommendations.csv
 ============================================================
 """
 
 import os
 import sys
+import subprocess
+import argparse
 
-# Add project root to path
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+# Force UTF-8 encoding on Windows terminals
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8")
 
-from src.data_analysis import run_analysis
+DEFAULT_MACHINE = "pelletizer-I"
 
-# ============================================================
-# CONFIGURATION — CHANGE THIS
-# ============================================================
-
-# Choose mode: "single" or "multi"
-MODE = "single"
-
-# --- OPTION A: Single file path ---
-# For SPARK: e.g., "data/MILL_01/power.i1/2023.csv.xz"
-# For quick test: "data/dataset.csv"
-DATA_PATH   = "data/2024_P_total_PickAndPlace.csv.xz"
-MACHINE_NAME = "EPI_PickAndPlace Robot" # Give it a name for the report
-OUTPUT_PATH = "outputs/plots_gmm_epi_pick"
-
-# --- OPTION B: Multi-machine SPARK root folder ---
-# Set this to where you extracted the full SPARK dataset
-# e.g., "C:/Downloads/SPARK/" or "/home/user/SPARK/"
-SPARK_ROOT  = "data/SPARK/"
-
-# ============================================================
-
-
-def run_single():
-    """Analyse a single machine file."""
-    print(f"\n🔬 Running analysis on: {DATA_PATH}")
-    print(f"   Machine: {MACHINE_NAME}")
-    print(f"   Output:  {OUTPUT_PATH}\n")
-
-    if not os.path.exists(DATA_PATH):
-        print(f"❌ ERROR: File not found → {DATA_PATH}")
-        print("\nPlease either:")
-        print("  1. Place your CSV file at:", DATA_PATH)
-        print("  2. Or update DATA_PATH in main.py to your actual file path")
-        return
-
-    summary = run_analysis(DATA_PATH, OUTPUT_PATH, MACHINE_NAME)
-    print("\n🎉 Single machine analysis complete!")
-    return summary
-
-
-def run_multi():
-    """
-    Scan the SPARK_ROOT folder and run analysis on EVERY machine found.
-    Saves results in separate subfolders per machine.
-    Prints a combined comparison table at the end.
-    """
-    import glob
-
-    if not os.path.exists(SPARK_ROOT):
-        print(f"❌ ERROR: SPARK root folder not found → {SPARK_ROOT}")
-        print("Please update SPARK_ROOT in main.py to your SPARK dataset folder.")
-        return
-
-    # Find all csv.xz files inside SPARK_ROOT
-    all_files = glob.glob(os.path.join(SPARK_ROOT, "**", "*.csv.xz"), recursive=True)
-
-    if len(all_files) == 0:
-        # Also try plain csv
-        all_files = glob.glob(os.path.join(SPARK_ROOT, "**", "*.csv"), recursive=True)
-
-    if len(all_files) == 0:
-        print(f"❌ No .csv.xz or .csv files found in: {SPARK_ROOT}")
-        return
-
-    print(f"\n📦 Found {len(all_files)} data files in SPARK dataset")
-    print("="*60)
+def run_command_stage(stage_num: int, title: str, cmd_args: list):
+    print("\n" + "=" * 70)
+    print(f"  STAGE {stage_num}: {title}")
+    print("=" * 70)
+    print(f"Executing: {' '.join(cmd_args)}\n")
     
-    all_summaries = {}
+    result = subprocess.run([sys.executable] + cmd_args)
+    if result.returncode != 0:
+        print(f"\n❌ STAGE {stage_num} FAILED with exit code {result.returncode}")
+        sys.exit(result.returncode)
+    print(f"\n✅ STAGE {stage_num} COMPLETE: {title}")
 
-    for i, fpath in enumerate(sorted(all_files)):
-        # Use relative path as machine name
-        rel = os.path.relpath(fpath, SPARK_ROOT)
-        parts = rel.replace("\\", "/").split("/")
-        machine_name = parts[0] if len(parts) > 1 else f"Machine_{i+1:02d}"
-        measurement  = parts[1] if len(parts) > 2 else "power"
+def main():
+    parser = argparse.ArgumentParser(
+        description="Master Orchestrator for GMM -> LSTM Industrial Energy Optimization Pipeline"
+    )
+    parser.add_argument(
+        "machine",
+        nargs="?",
+        default=DEFAULT_MACHINE,
+        help=f"Machine key to analyze (default: {DEFAULT_MACHINE})",
+    )
+    parser.add_argument(
+        "--mode",
+        default="manual",
+        choices=["manual", "automatic"],
+        help="Action layer mode: 'manual' (log only) or 'automatic' (PLC control)",
+    )
 
-        label      = f"{machine_name}_{measurement}"
-        out_folder = os.path.join("outputs", "plots", machine_name, measurement)
+    args = parser.parse_args()
+    machine_key = args.machine
 
-        print(f"\n[{i+1}/{len(all_files)}] Processing: {label}")
+    print("=" * 70)
+    print(" 🚀 INDUSTRIAL ENERGY PIPELINE MASTER EXECUTION")
+    print(f" Target Machine : {machine_key}")
+    print(f" Action Mode    : {args.mode}")
+    print("=" * 70)
 
-        try:
-            summary = run_analysis(fpath, out_folder, label)
-            all_summaries[label] = summary
-        except Exception as e:
-            print(f"  ⚠️  Skipped due to error: {e}")
+    # ── Stage 1: GMM Validation & Baseline State Labeling ───────────────────
+    run_command_stage(
+        1,
+        "GMM State Clustering & Validation",
+        ["validate_gmm.py", machine_key]
+    )
 
-    # Print combined comparison table
-    if all_summaries:
-        print_comparison_table(all_summaries)
+    # ── Stage 2: 5-Method Physics Validation Harness ─────────────────────────
+    run_command_stage(
+        2,
+        "5-Method Independent Physics Validation",
+        ["proof_5methods.py", machine_key]
+    )
 
+    # ── Stage 3 & 4: Feature Engineering, Processed Dataset Export, & LSTM Pipeline ──
+    run_command_stage(
+        3,
+        "Feature Engineering, Processed Dataset Export & LSTM Training/Evaluation",
+        ["lstm_pipeline.py", machine_key, "--mode", args.mode]
+    )
 
-def print_comparison_table(all_summaries):
-    """Print a side-by-side comparison of all 22 machines."""
-    print("\n")
-    print("="*90)
-    print("  ALL MACHINES — STATE COMPARISON TABLE")
-    print("="*90)
-    print(f"  {'MACHINE':<30} {'OFF':>8} {'STANDBY':>10} {'IDLE':>8} {'WORKING':>10}")
-    print("-"*90)
-
-    for machine, summary in all_summaries.items():
-        off_h  = summary.get('OFF',     {}).get('hours', 0)
-        stby_h = summary.get('STANDBY', {}).get('hours', 0)
-        idle_h = summary.get('IDLE',    {}).get('hours', 0)
-        work_h = summary.get('WORKING', {}).get('hours', 0)
-        print(f"  {machine:<30} {off_h:>7.1f}h {stby_h:>9.1f}h {idle_h:>7.1f}h {work_h:>9.1f}h")
-
-    print("="*90)
-
-    # Save comparison to CSV
-    import csv
-    os.makedirs("outputs", exist_ok=True)
-    with open("outputs/machine_comparison.csv", "w", newline="") as f:
-        writer = csv.writer(f)
-        writer.writerow(["Machine", "OFF_hours", "STANDBY_hours", "IDLE_hours", "WORKING_hours",
-                         "OFF_%", "STANDBY_%", "IDLE_%", "WORKING_%"])
-        for machine, summary in all_summaries.items():
-            writer.writerow([
-                machine,
-                summary.get('OFF',     {}).get('hours', 0),
-                summary.get('STANDBY', {}).get('hours', 0),
-                summary.get('IDLE',    {}).get('hours', 0),
-                summary.get('WORKING', {}).get('hours', 0),
-                summary.get('OFF',     {}).get('percent', 0),
-                summary.get('STANDBY', {}).get('percent', 0),
-                summary.get('IDLE',    {}).get('percent', 0),
-                summary.get('WORKING', {}).get('percent', 0),
-            ])
-    print(f"\n✅ Comparison table saved: outputs/machine_comparison.csv")
-
-
-# ============================================================
-# RUN
-# ============================================================
+    print("\n" + "=" * 70)
+    print(" 🎉 ALL PIPELINE STAGES COMPLETED SUCCESSFULLY!")
+    print("=" * 70)
+    print(f"  1. GMM Validation Artifacts  → outputs/gmm_validation_imdeld/{machine_key}/")
+    print(f"  2. Base Labelled CSV         → outputs/imdeld_labelled/{machine_key}_labelled.csv")
+    print(f"  3. Processed LSTM Dataset    → outputs/processed_datasets/{machine_key}_processed_lstm_ready.csv")
+    print(f"  4. Trained Model & Logs      → outputs/models/{machine_key}/")
+    print(f"  5. Action Recommendations    → outputs/action_log/recommendations.csv")
 
 if __name__ == "__main__":
-    print("="*60)
-    print("  SPARK INDUSTRIAL ENERGY DATASET ANALYSER")
-    print("="*60)
-
-    if MODE == "single":
-        run_single()
-    elif MODE == "multi":
-        run_multi()
-    else:
-        print(f"❌ Unknown MODE: '{MODE}'. Use 'single' or 'multi'.")
-
+    main()
