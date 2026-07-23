@@ -70,6 +70,8 @@ from src.state_mapping import (
 )
 from src.lstm_data import (
     add_lstm_features,
+    add_standby_band_feature,
+    smooth_short_standby_labels,
     compute_sample_interval,
     make_windows,
     chronological_split,
@@ -144,15 +146,22 @@ DEFAULT_MACHINE = "pelletizer-I"
 #                                  horizon 300 rows = 5 min ahead prediction
 LOOKBACK_SECONDS = 600    # past context fed to encoder (10 minutes)
 HORIZON_SECONDS  = 300    # prediction window (5 minutes)
-STRIDE_SECONDS   = 30     # step between window starts (1 window every 30s)
+STRIDE_SECONDS   = 30     # step between window starts (30s — denser STANDBY sampling)
 
 TRAIN_PCT   = 0.70
 VAL_PCT     = 0.15
 # test = remaining 0.15
 
-EPOCHS      = 50
-BATCH_SIZE  = 64
-PATIENCE    = 7
+EPOCHS      = 80    # More epochs — STANDBY takes longer to converge
+BATCH_SIZE  = 16    # Smaller batches → more frequent STANDBY gradient updates
+PATIENCE    = 12    # More patience — allow model to escape OFF+WORKING local minima
+
+# STANDBY class weight boost (applied on top of sklearn balanced weights)
+# Value of 2.0 means STANDBY gets 2x what balanced formula gives it
+STANDBY_WEIGHT_BOOST = 2.0
+
+# Minimum valid STANDBY dwell before label smoothing removes it
+MIN_STANDBY_DWELL_S = 30.0  # 30 seconds — matches the HMM's own self-dwell prior
 
 # Feature columns used as LSTM input (raw electrical + engineered)
 # 'state_id' is the TARGET, not an input feature
@@ -170,6 +179,7 @@ BASE_FEATURE_COLS = [
     "is_weekend",
     "is_factory_open",
     "dwell_seconds_so_far",
+    "standby_power_band",   # Physics-anchored STANDBY discriminator (Fix 2)
 ]
 
 
@@ -269,6 +279,21 @@ def run_pipeline(machine_key: str, action_mode: str = "manual"):
     if "power_factor" in df.columns:
         df = refine_standby_with_pf(df, state_col="state", pf_col="power_factor")
 
+    # ── Fix 1: Smooth out STANDBY micro-flicker labels (< 30s runs) ──────────
+    # Method 4 showed 76.7% flicker rate with median STANDBY dwell = 2s.
+    # These 2-second STANDBY bursts are labelling artefacts — training on them
+    # causes the LSTM to confuse STANDBY with WORKING (the dominant error).
+    _print_section("STEP 6b — STANDBY Label Smoothing (Anti-Flicker Fix)")
+    df = smooth_short_standby_labels(
+        df,
+        state_col="state",
+        min_dwell_s=MIN_STANDBY_DWELL_S,
+        sample_interval_s=sample_interval_s,
+    )
+
+    # ── Fix 2: Add physics-anchored standby band feature ─────────────────────
+    df = add_standby_band_feature(df)
+
     # Build state encoder
     unique_states      = sorted(df["state"].unique())
     encoder, decoder   = build_state_encoder(unique_states)
@@ -348,6 +373,19 @@ def run_pipeline(machine_key: str, action_mode: str = "manual"):
 
     sample_weight = compute_class_weights(y_train, n_classes=n_states)
 
+    # ── Fix 3: Boost STANDBY class weight beyond sklearn balanced formula ─────
+    # After label smoothing, STANDBY rows are cleaner but still minority.
+    # A 2x boost on top of the balanced weight biases the gradient towards STANDBY.
+    standby_id = encoder.get("STANDBY", None)
+    if standby_id is not None and STANDBY_WEIGHT_BOOST > 1.0:
+        original_w = float(sample_weight[y_train == standby_id].mean()) if (y_train == standby_id).any() else 0.0
+        sample_weight[y_train == standby_id] *= STANDBY_WEIGHT_BOOST
+        boosted_w  = float(sample_weight[y_train == standby_id].mean()) if (y_train == standby_id).any() else 0.0
+        print(
+            f"[pipeline] STANDBY weight boosted {STANDBY_WEIGHT_BOOST}x: "
+            f"{original_w:.4f} → {boosted_w:.4f}"
+        )
+
     # ─────────────────────────────────────────────────────────────────────────
     # STEP 7d: Build + Train LSTM
     # ─────────────────────────────────────────────────────────────────────────
@@ -378,6 +416,8 @@ def run_pipeline(machine_key: str, action_mode: str = "manual"):
         "epochs":             EPOCHS,
         "batch_size":         BATCH_SIZE,
         "patience":           PATIENCE,
+        "standby_weight_boost":    STANDBY_WEIGHT_BOOST,
+        "min_standby_dwell_s":     MIN_STANDBY_DWELL_S,
         "n_train_windows":    len(X_train),
         "n_val_windows":      len(X_val),
         "n_test_windows":     len(X_test),

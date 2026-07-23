@@ -19,6 +19,8 @@ HOW TO USE
 ----------
     from src.lstm_data import (
         add_lstm_features,
+        add_standby_band_feature,
+        smooth_short_standby_labels,
         compute_sample_interval,
         make_windows,
         chronological_split,
@@ -28,6 +30,8 @@ HOW TO USE
     df = add_lstm_features(df, factory_tz="America/Sao_Paulo",
                            schedule_close_hour=17,
                            schedule_open_hour=22)
+    df = smooth_short_standby_labels(df, min_dwell_s=30)  # Fix flicker labels
+    df = add_standby_band_feature(df)                     # Physics-anchored hint
     interval_s = compute_sample_interval(df)
     X, y = make_windows(df, feature_cols, lookback_s=600, horizon_s=300,
                         sample_interval_s=interval_s)
@@ -154,6 +158,193 @@ def add_lstm_features(
         df["dwell_seconds_so_far"] = row_counts * sample_interval_s
     else:
         df["dwell_seconds_so_far"] = 0.0
+
+    return df
+
+
+# ── STANDBY label smoother ────────────────────────────────────────────────────
+
+def smooth_short_standby_labels(
+    df: pd.DataFrame,
+    state_col: str = "state",
+    min_dwell_s: float = 30.0,
+    sample_interval_s: float | None = None,
+    timestamp_col: str = "timestamp",
+    standby_name: str = "STANDBY",
+) -> pd.DataFrame:
+    """
+    Remove STANDBY micro-flicker labels shorter than min_dwell_s seconds.
+
+    The GMM+Viterbi pipeline often produces very short STANDBY bursts
+    (median=2s from Method 4 results) between WORKING segments. These
+    are labelling artefacts — real STANDBY events last minutes, not
+    seconds. Training the LSTM on flicker labels teaches it that
+    'STANDBY = WORKING with noise', which is why STANDBY F1 is low.
+
+    This function:
+    1. Identifies all contiguous STANDBY runs in state_col.
+    2. Any run shorter than min_dwell_s is re-labelled to the
+       majority state of its immediate neighbours (typically WORKING).
+    3. Logs how many rows were smoothed for full traceability.
+
+    Parameters
+    ----------
+    df              : DataFrame with a state label column.
+    state_col       : name of the state column to smooth.
+    min_dwell_s     : minimum valid STANDBY dwell in seconds (default 30s).
+                      Runs shorter than this are merged into neighbours.
+    sample_interval_s : seconds per row; computed from timestamp if None.
+    timestamp_col   : used for interval computation only.
+    standby_name    : exact string for STANDBY in state_col (default 'STANDBY').
+
+    Returns
+    -------
+    DataFrame with smoothed state labels. Original column is overwritten;
+    the old labels are preserved in 'state_pre_smooth' for auditability.
+    """
+    df = df.copy()
+    df["state_pre_smooth"] = df[state_col].copy()  # preserve originals
+
+    if sample_interval_s is None:
+        if timestamp_col in df.columns:
+            sample_interval_s = compute_sample_interval(df, timestamp_col)
+        else:
+            sample_interval_s = 1.0
+
+    min_dwell_rows = max(1, int(round(min_dwell_s / sample_interval_s)))
+
+    states      = df[state_col].values.copy()
+    n           = len(states)
+    n_smoothed  = 0
+    n_runs      = 0
+
+    # Walk through runs
+    i = 0
+    while i < n:
+        if states[i] != standby_name:
+            i += 1
+            continue
+
+        # Found start of a STANDBY run
+        j = i
+        while j < n and states[j] == standby_name:
+            j += 1
+        run_len = j - i  # [i, j) are all STANDBY
+        n_runs += 1
+
+        if run_len < min_dwell_rows:
+            # Determine replacement label from immediate neighbours
+            left_label  = states[i - 1] if i > 0 else None
+            right_label = states[j]     if j < n else None
+
+            # Prefer right neighbour (what comes AFTER standby = more stable)
+            if right_label is not None and right_label != standby_name:
+                replacement = right_label
+            elif left_label is not None and left_label != standby_name:
+                replacement = left_label
+            else:
+                replacement = standby_name  # surrounded by STANDBY — leave it
+
+            if replacement != standby_name:
+                states[i:j] = replacement
+                n_smoothed += run_len
+
+        i = j  # jump past the run we just processed
+
+    df[state_col] = states
+
+    # Recompute state_id if present
+    if "state_id" in df.columns:
+        unique_states = sorted(df["state_pre_smooth"].unique())  # keep encoder stable
+        encoder = {s: idx for idx, s in enumerate(unique_states)}
+        df["state_id"] = df[state_col].map(encoder).astype(int)
+
+    removed_pct = n_smoothed / max(len(df), 1) * 100
+    print(
+        f"\n[lstm_data] STANDBY label smoothing (min_dwell={min_dwell_s:.0f}s, "
+        f"{min_dwell_rows} rows):\n"
+        f"  Total STANDBY runs found  : {n_runs:,}\n"
+        f"  Rows re-labelled          : {n_smoothed:,} ({removed_pct:.1f}% of dataset)\n"
+        f"  Original labels preserved : df['state_pre_smooth']"
+    )
+
+
+    # Post-smooth state distribution
+    print(f"  Post-smooth state distribution:")
+    for state, count in pd.Series(states).value_counts().items():
+        print(f"    {state:<12}: {count:>10,} rows  ({count/len(df)*100:.1f}%)")
+
+    return df
+
+
+# ── STANDBY band feature ──────────────────────────────────────────────────────
+
+def add_standby_band_feature(
+    df: pd.DataFrame,
+    power_col: str = "active_power",
+    pf_col: str = "power_factor",
+    standby_power_low_w: float = 1000.0,
+    standby_power_high_w: float = 40000.0,
+    standby_pf_max: float = 0.35,
+) -> pd.DataFrame:
+    """
+    Add a physics-anchored 'standby_power_band' boolean feature.
+
+    STANDBY on a large industrial machine occupies a specific region
+    of the (active_power, power_factor) plane:
+      - Active power between low_w and high_w  (non-zero but sub-WORKING)
+      - Power factor below standby_pf_max      (no real mechanical load)
+
+    This feature gives the LSTM a direct, physics-derived hint about
+    the STANDBY operating zone that is much more stable than the raw
+    power value (which has std=38,884W in STANDBY).
+
+    Parameters
+    ----------
+    df                    : enriched DataFrame.
+    power_col             : active power column name.
+    pf_col                : power factor column name.
+    standby_power_low_w   : lower power bound for STANDBY band (default 1 kW).
+    standby_power_high_w  : upper power bound for STANDBY band (default 40 kW).
+    standby_pf_max        : PF ceiling for STANDBY (default 0.35).
+
+    Returns
+    -------
+    DataFrame with added 'standby_power_band' float column (0.0 or 1.0).
+    """
+    df = df.copy()
+
+    has_power = power_col in df.columns
+    has_pf    = pf_col    in df.columns
+
+    if has_power and has_pf:
+        band = (
+            (df[power_col] >= standby_power_low_w) &
+            (df[power_col] <  standby_power_high_w) &
+            (df[pf_col]    <  standby_pf_max)
+        )
+        df["standby_power_band"] = band.astype(np.float32)
+        n_in_band = int(band.sum())
+        print(
+            f"\n[lstm_data] Standby power-band feature:"
+            f" {n_in_band:,} rows in STANDBY band "
+            f"({n_in_band/len(df)*100:.1f}%)"
+            f" [P∈[{standby_power_low_w:.0f}W, {standby_power_high_w:.0f}W] & PF<{standby_pf_max}]"
+        )
+    elif has_power:
+        # PF not available — use power-only band
+        band = (
+            (df[power_col] >= standby_power_low_w) &
+            (df[power_col] <  standby_power_high_w)
+        )
+        df["standby_power_band"] = band.astype(np.float32)
+        print(
+            f"[lstm_data] Standby power-band feature (power-only, no PF column):"
+            f" {int(band.sum()):,} rows in band."
+        )
+    else:
+        df["standby_power_band"] = 0.0
+        print("[lstm_data] WARNING: Cannot compute standby_power_band — neither power nor PF column found.")
 
     return df
 
