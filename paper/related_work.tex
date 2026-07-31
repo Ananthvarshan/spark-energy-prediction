@@ -1,0 +1,375 @@
+% =====================================================================
+%  related_work.tex  --  PHASE I, Task 1
+%
+%  Structured four-theme literature review + cross-comparison table
+%  + explicit research-gap statement.
+%
+%  Drop-in usage (IEEEtran or elsarticle):
+%      \input{related_work}
+%  Requires in the preamble:
+%      \usepackage{booktabs}
+%      \usepackage{threeparttable}   % for the table notes
+%      \usepackage{multirow}
+%      \usepackage{wasysym}          % \CIRCLE \LEFTcircle \Circle
+%  Note: wasysym redefines \Box/\diamond; if that clashes with your
+%  template, load it as \usepackage[nointegrals]{wasysym} or swap the
+%  harvey-ball glyphs for {\ding{108}}/{\ding{109}} from pifont.
+%  Bibliography: paper/references.bib
+% =====================================================================
+
+\section{Related Work}
+\label{sec:related}
+
+The problem addressed in this paper sits at the intersection of four
+research communities that have so far developed largely in isolation:
+(i)~unsupervised identification of machine operating states from
+electrical measurements, (ii)~non-intrusive load monitoring (NILM),
+(iii)~industrial energy optimisation at the process and system level,
+and (iv)~predictive shutdown and decision support for manufacturing
+equipment. We review each in turn, then summarise the resulting gap.
+
+
+% ---------------------------------------------------------------------
+\subsection{Machine State Identification}
+\label{sec:rw:states}
+
+The recognition that an electrically driven machine occupies a small
+number of discrete operating regimes---typically \textsc{off},
+\textsc{standby} (energised but not producing), and \textsc{working}---is
+the foundation of essentially all energy-state analysis. ISO~14955-1
+\cite{iso14955} formalises this decomposition as a design-time
+requirement for energy-efficient machine tools, defining standby as the
+operating mode in which a machine is ready for production but performs
+no value-adding function. This definition is the one adopted throughout
+the present work.
+
+\subsubsection{Supervised approaches}
+Where per-timestamp annotations are available, state identification
+reduces to a standard classification problem, and support-vector
+machines, random forests, and convolutional classifiers all perform
+well. The practical obstacle in industrial deployments is that such
+annotations essentially never exist: obtaining them requires either
+instrumenting the machine's contactor and PLC directly or having an
+operator observe each machine over an extended period. Both are
+prohibitively expensive at facility scale, and neither transfers to a
+new machine without repeating the effort. Supervised methods are
+therefore poorly matched to the retrofit scenario that motivates this
+paper.
+
+\subsubsection{Unsupervised approaches}
+Unsupervised state inference avoids the annotation cost entirely.
+$k$-means \cite{lloyd1982least} is the simplest option but imposes
+isotropic, equal-variance clusters, which is a poor model for
+electrical states whose dispersion grows with load. Gaussian mixture
+models (GMM) \cite{mclachlan2000finite}, fitted by
+expectation--maximisation \cite{dempster1977em}, relax both assumptions:
+each state receives its own mean and full covariance, and assignments
+are soft, which matters precisely at the \textsc{standby}/\textsc{working}
+boundary where the two regimes overlap. Density-based methods such as
+DBSCAN \cite{ester1996dbscan} and HDBSCAN \cite{campello2015hdbscan}
+make no parametric shape assumption and identify noise points
+explicitly, while spectral clustering \cite{ng2001spectral} operates on
+the affinity graph and can recover non-convex structure. Model order is
+conventionally selected by the Bayesian information criterion
+\cite{schwarz1978bic} or by silhouette analysis
+\cite{rousseeuw1987silhouettes}.
+
+\subsubsection{Temporal structure}
+A limitation common to all of the above is that they treat samples as
+independent and identically distributed. Applied to a 1\,Hz electrical
+stream, an i.i.d.\ clustering assigns each second in isolation and
+consequently produces rapid, physically impossible state alternation
+around cluster boundaries---a failure mode we quantify as the
+\emph{flicker rate} in Section~\ref{sec:results}. Hidden Markov models
+\cite{rabiner1989tutorial} address this by making the state sequence
+itself the object of inference: the transition matrix encodes state
+persistence, and Viterbi decoding returns the globally most probable
+sequence rather than a concatenation of independent decisions. Fox
+\textit{et al.} \cite{fox2011sticky} show that an explicit bias toward
+self-transition (a ``sticky'' prior) reduces over-segmentation when the
+emission distributions overlap, which is the regime encountered here.
+
+It is worth stating precisely what this machinery can and cannot do,
+because the point is routinely overstated. In a Viterbi decode the cost
+of changing state is $\log(p_{\text{self}}/p_{\text{switch}})$, which is
+a few nats even for extremely persistent transition matrices and is
+bounded above however strong the prior is made. The emission term
+carries no such bound: full-covariance Gaussians fitted to low-noise,
+multi-channel electrical measurements can differ by hundreds of nats
+between adjacent states. Where that holds, the transition model is
+arithmetically unable to influence the decoded path and the HMM
+degenerates toward per-sample assignment. Guaranteeing a minimum state
+duration therefore requires modelling duration explicitly---a hidden
+semi-Markov formulation \cite{yu2010hsmm}, or an equivalent
+duration constraint imposed at decode time---rather than a heavier
+transition prior. Section~\ref{sec:results} quantifies this for the
+present data.
+
+\subsubsection{Threshold-free decision rules}
+Where a scalar decision boundary is unavoidable---for instance when
+converting a continuous power-factor distribution into a binary
+load/no-load verdict---Otsu's criterion \cite{otsu1979threshold}
+selects the threshold that maximises between-class variance, removing
+the arbitrariness of a hand-tuned cut-off. Agreement among several
+independently derived partitions can then be aggregated using cluster
+ensemble methods \cite{strehl2002cluster}.
+
+
+% ---------------------------------------------------------------------
+\subsection{Non-Intrusive Load Monitoring}
+\label{sec:rw:nilm}
+
+NILM originates with Hart \cite{hart1992nonintrusive}, who showed that
+individual appliance activity can be recovered from an aggregate meter
+by detecting steady-state step changes in real and reactive power.
+Subsequent surveys \cite{zeifman2011nilm,schirmer2023nilmreview} trace
+the field's progression from event-based signature matching to
+probabilistic and, more recently, deep-learning formulations. Kolter
+and Jaakkola \cite{kolter2012afamap} cast disaggregation as inference in
+an additive factorial HMM, making explicit the connection between NILM
+and the temporal state models of Section~\ref{sec:rw:states}. The deep
+learning era is represented by Neural NILM \cite{kelly2015neuralnilm},
+sequence-to-point regression \cite{zhang2018seq2point}, and denoising
+autoencoders \cite{bonfigli2018denoising}. Standardised toolkits
+\cite{batra2014nilmtk} and evaluation protocols
+\cite{makonin2015performance} have made results across this line of
+work broadly comparable.
+
+Two properties of this literature are decisive for the present paper.
+First, it is overwhelmingly \emph{residential}. The canonical benchmarks
+---REDD \cite{kolter2011redd} and UK-DALE---consist of household
+appliances whose signatures are sparse, short, and well separated.
+Industrial machinery behaves very differently: loads are large,
+continuously modulated by process throughput, dominated by induction
+motors whose reactive power draw persists at zero mechanical output, and
+governed by shift schedules rather than occupant behaviour. Holmegaard
+and Kj\ae{}rgaard \cite{holmegaard2016industrial} evaluate established
+NILM algorithms on industrial loads and report substantially degraded
+performance, attributing it to precisely these differences. Martins
+\textit{et al.} \cite{martins2018imdeld} apply a deep generative model
+to industrial disaggregation and, in doing so, release the IMDELD
+dataset \cite{imdeld2018dataset}---eleven meters recording eight heavy
+machines in a Brazilian poultry-feed pellet plant at 1\,Hz for
+approximately 111 days. IMDELD is the benchmark used throughout this
+paper; its authors characterise the machines as three-state systems but
+supply no per-timestamp state annotation, which is the reason the
+present work must proceed without labels and validate its partition
+against physics instead.
+
+Second, and more fundamentally, the objective of NILM is
+\emph{attribution}: given an aggregate signal, determine which appliance
+consumed what. It is a retrospective accounting exercise. NILM does not
+forecast, and it does not act. No NILM system, industrial or
+residential, closes the loop from an inferred state to an actuation
+decision. That step belongs to the two literatures reviewed next.
+
+
+% ---------------------------------------------------------------------
+\subsection{Industrial Energy Optimisation}
+\label{sec:rw:industrial}
+
+The manufacturing engineering community has independently established
+that non-productive energy dominates the energy budget of discrete-part
+production. Gutowski \textit{et al.} \cite{gutowski2006electrical} and
+Dahmus and Gutowski \cite{dahmus2004environmental} show that the
+load-independent baseline of a machine tool---spindle idling, hydraulics,
+coolant pumps, control electronics---frequently exceeds the energy
+actually delivered to the workpiece, and that this fraction rises as
+automation increases. Kara and Li \cite{kara2011unit} formalise the
+relationship as a unit-process model in which specific energy
+consumption is inversely related to material removal rate, so that a
+lightly loaded or idle machine is intrinsically inefficient. Devoldere
+\textit{et al.} \cite{devoldere2007improvement} quantify the resulting
+improvement potential and identify idle-mode elimination as the single
+largest lever available without redesigning the machine. Duflou
+\textit{et al.} \cite{duflou2012towards} synthesise this body of work
+into a systems-level roadmap, placing operational measures---switching
+equipment off when it is not needed---at the machine and cell levels of
+their hierarchy.
+
+On the management side, ISO~50001 \cite{iso50001} provides the
+plan--do--check--act framework within which energy performance
+indicators are defined and tracked, and ISO~14955-1 \cite{iso14955}
+supplies the operating-mode taxonomy that makes standby energy a
+measurable quantity in the first place.
+
+The limitation of this literature is methodological rather than
+conceptual. Its energy models are typically built from controlled
+laboratory measurements of a single machine under prescribed process
+parameters, and its recommendations are design guidelines and audit
+procedures. It does not address how a facility, given only the
+electrical measurements it already collects and no process-parameter
+instrumentation, should determine \emph{which} of its machines are idle,
+\emph{when}, and for \emph{how long}. That inference problem is left
+open.
+
+
+% ---------------------------------------------------------------------
+\subsection{Predictive Shutdown and Decision Support}
+\label{sec:rw:decision}
+
+The operations research community has studied the shutdown decision
+itself in considerable depth. Mouzon \textit{et al.}
+\cite{mouzon2007operational} establish the central trade-off: turning a
+machine off saves its idle power but incurs a restart energy penalty and
+a restart delay, so shutdown is economical only when the idle period
+exceeds a break-even duration determined by the ratio of restart energy
+to idle power. They propose dispatching rules and a mathematical
+programming formulation that exploit this, and extend the treatment to
+joint energy--tardiness objectives \cite{mouzon2008framework}. Chen
+\textit{et al.} \cite{chen2013schedule} develop schedule-based operation
+policies for production lines, Sun and Li \cite{sun2013opportunity}
+estimate real-time control opportunities from buffer state, Li and Sun
+\cite{li2016energy} formulate dynamic energy control as a Markov
+decision process, Frigerio and Matta \cite{frigerio2015energy} derive
+control strategies for machine tools under stochastic job arrivals, and
+He \textit{et al.} \cite{he2015energy} embed energy responsiveness in
+job-shop machine selection and sequencing.
+
+This literature is mathematically mature, and the break-even
+formulation of Mouzon \textit{et al.} is the natural objective for the
+decision layer of any standby-elimination system. Its universal
+assumption, however, is that the idle interval is \emph{known}---either
+because it is dictated by a deterministic production schedule, or
+because it is drawn from an analytically tractable arrival process
+calibrated by the modeller. The policies are evaluated in simulation or
+on analytical queueing models. What is absent is any mechanism for
+obtaining the idle-duration input from a machine's own measured
+electrical behaviour, which is the only signal available in a retrofit
+installation. In other words: this community can decide optimally given
+a duration, and the NILM community can infer a state from
+measurements, but no work connects the two.
+
+
+% ---------------------------------------------------------------------
+\subsection{Synthesis and Research Gap}
+\label{sec:rw:gap}
+
+Table~\ref{tab:related} compares representative works from the four
+themes against the capabilities required for an autonomous
+standby-elimination system: whether the method infers machine state
+without labels, whether it models temporal structure explicitly, whether
+it forecasts the \emph{duration} of a future non-productive interval,
+whether it converts that forecast into an economically justified control
+decision, and whether it is validated on real industrial measurements.
+
+\begin{table*}[!t]
+\centering
+\caption{Comparison of representative prior work against the
+capabilities required for autonomous standby elimination.
+\CIRCLE~= provided, \LEFTcircle~= partially provided, \Circle~= not
+provided, --~= not applicable.}
+\label{tab:related}
+\begin{threeparttable}
+\small
+\setlength{\tabcolsep}{4pt}
+\begin{tabular}{@{}lllccccc@{}}
+\toprule
+\multirow{2}{*}{\textbf{Work}} &
+\multirow{2}{*}{\textbf{Method family}} &
+\multirow{2}{*}{\textbf{Data domain}} &
+\textbf{Labels} &
+\textbf{Temporal} &
+\textbf{Duration} &
+\textbf{Economic} &
+\textbf{Real ind.} \\
+ & & & \textbf{required} & \textbf{model} & \textbf{forecast} &
+ \textbf{decision} & \textbf{data} \\
+\midrule
+\multicolumn{8}{@{}l}{\textit{Theme A --- machine state identification}}\\
+Lloyd \cite{lloyd1982least}          & $k$-means                    & generic                & no  & \Circle    & \Circle & \Circle & \Circle \\
+McLachlan \& Peel \cite{mclachlan2000finite} & Gaussian mixture     & generic                & no  & \Circle    & \Circle & \Circle & \Circle \\
+Ester \textit{et al.} \cite{ester1996dbscan} & DBSCAN               & generic                & no  & \Circle    & \Circle & \Circle & \Circle \\
+Fox \textit{et al.} \cite{fox2011sticky}     & sticky HDP-HMM       & audio                  & no  & \CIRCLE    & \Circle & \Circle & \Circle \\
+\addlinespace
+\multicolumn{8}{@{}l}{\textit{Theme B --- non-intrusive load monitoring}}\\
+Hart \cite{hart1992nonintrusive}     & event/steady-state signature & residential            & yes\tnote{a} & \LEFTcircle & \Circle & \Circle & \Circle \\
+Kolter \& Jaakkola \cite{kolter2012afamap} & additive factorial HMM & REDD (residential)     & no  & \CIRCLE    & \Circle & \Circle & \Circle \\
+Kelly \& Knottenbelt \cite{kelly2015neuralnilm} & deep NN (dAE, LSTM) & UK-DALE (residential) & yes & \LEFTcircle & \Circle & \Circle & \Circle \\
+Zhang \textit{et al.} \cite{zhang2018seq2point} & seq2point CNN     & UK-DALE, REDD          & yes & \LEFTcircle & \Circle & \Circle & \Circle \\
+Holmegaard \& Kj\ae{}rgaard \cite{holmegaard2016industrial} & NILM algorithm evaluation & industrial & yes & \LEFTcircle & \Circle & \Circle & \CIRCLE \\
+Martins \textit{et al.} \cite{martins2018imdeld} & deep generative disaggregation & IMDELD (industrial) & yes & \LEFTcircle & \Circle & \Circle & \CIRCLE \\
+\addlinespace
+\multicolumn{8}{@{}l}{\textit{Theme C --- industrial energy optimisation}}\\
+Gutowski \textit{et al.} \cite{gutowski2006electrical} & thermodynamic/empirical process model & lab machine tools & -- & \Circle & \Circle & \Circle & \LEFTcircle \\
+Kara \& Li \cite{kara2011unit}       & unit-process energy model    & lab machine tools      & --  & \Circle    & \Circle & \Circle & \LEFTcircle \\
+Duflou \textit{et al.} \cite{duflou2012towards} & systems-level roadmap & survey             & --  & \Circle    & \Circle & \LEFTcircle & \LEFTcircle \\
+\addlinespace
+\multicolumn{8}{@{}l}{\textit{Theme D --- predictive shutdown and decision support}}\\
+Mouzon \textit{et al.} \cite{mouzon2007operational} & dispatching rules, MILP & simulated single machine & -- & \Circle & \Circle & \CIRCLE & \Circle \\
+Chen \textit{et al.} \cite{chen2013schedule} & schedule-based control  & simulated line     & --  & \LEFTcircle & \Circle & \CIRCLE & \Circle \\
+Frigerio \& Matta \cite{frigerio2015energy} & stochastic control policy & analytical model  & --  & \CIRCLE    & \LEFTcircle\tnote{b} & \CIRCLE & \Circle \\
+He \textit{et al.} \cite{he2015energy} & energy-responsive scheduling & job-shop model      & --  & \Circle    & \Circle & \CIRCLE & \Circle \\
+\midrule
+\textbf{This work}                   & \textbf{GMM--HMM $\rightarrow$ Seq2Seq LSTM $\rightarrow$ optimisation} & \textbf{IMDELD (industrial)} & \textbf{no} & \CIRCLE & \CIRCLE & \CIRCLE & \CIRCLE \\
+\bottomrule
+\end{tabular}
+\begin{tablenotes}[flushleft]\footnotesize
+\item[a] Hart's formulation is unsupervised in its clustering step but
+requires a manually curated appliance signature library to name the
+recovered clusters.
+\item[b] Idle duration is modelled as a known stochastic arrival
+process calibrated by the analyst, not forecast from measured machine
+behaviour.
+\end{tablenotes}
+\end{threeparttable}
+\end{table*}
+
+Reading Table~\ref{tab:related} column-wise makes the gap explicit.
+Every capability required for autonomous standby elimination has been
+solved somewhere, but the last column of any single row is always
+empty:
+
+\begin{itemize}
+  \item \textbf{Label-free state inference with temporal structure}
+  exists (Theme~A, and \cite{kolter2012afamap} in Theme~B), but is
+  demonstrated on generic or residential data and terminates at the
+  labelled sequence. Nothing is predicted and nothing is decided.
+
+  \item \textbf{Industrial validation} exists
+  (\cite{holmegaard2016industrial,martins2018imdeld}, Theme~B), but the
+  task is disaggregation, the methods are supervised, and the output is
+  a retrospective attribution of energy rather than an operating state
+  usable for control.
+
+  \item \textbf{Quantification of idle-energy waste} exists (Theme~C),
+  but rests on controlled laboratory measurement of individual
+  processes and yields design guidance, not an online inference
+  procedure applicable to a running facility.
+
+  \item \textbf{Optimal shutdown decisions} exist (Theme~D), and the
+  break-even formulation is well understood, but every such policy
+  takes the idle duration as a \emph{given} input---supplied by a
+  deterministic schedule or an analyst-calibrated arrival
+  process---and is evaluated in simulation.
+\end{itemize}
+
+\medskip
+\noindent\fbox{\parbox{0.97\columnwidth}{%
+\textbf{Research gap.} No existing work combines
+(i)~label-free, temporally coherent inference of industrial machine
+states from electrical measurements alone, (ii)~forecasting of the
+\emph{duration} of the resulting non-productive intervals, and
+(iii)~an economically optimised shutdown decision derived from that
+forecast, validated end-to-end on real industrial measurement data.
+The state-inference and decision-making capabilities have matured
+independently and remain unconnected: the former produces labels no
+controller consumes, the latter consumes durations no inference
+procedure supplies.}}
+\medskip
+
+\noindent
+Closing this gap requires more than concatenating existing components.
+Three problems arise specifically at the interfaces. First, because no
+ground-truth state annotation exists for industrial data, the inferred
+partition cannot be validated by conventional supervised metrics, and an
+alternative validation basis---independent physical and operational
+evidence---must be constructed. Second, an i.i.d.\ clustering produces a
+label sequence whose flicker makes duration forecasting meaningless,
+so temporal coherence is a prerequisite for the forecasting stage rather
+than a refinement of the inference stage. Third, a forecast duration
+carries uncertainty that a deterministic break-even threshold ignores;
+the decision layer must therefore be posed as a constrained
+cost-minimisation problem in which the break-even point emerges as a
+derived quantity rather than being supplied as a tuning parameter.
+Section~\ref{sec:method} addresses each of these in turn.

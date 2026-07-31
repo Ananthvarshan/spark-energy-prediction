@@ -1,0 +1,710 @@
+% =====================================================================
+%  references.bib
+%  Standby-Based Energy Optimization for Industrial Machines
+%  (GMM-HMM state inference + Seq2Seq LSTM forecasting + economic
+%   shutdown decision layer), IMDELD benchmark.
+%
+%  PHASE I deliverable. Organised by the four review themes:
+%    A. Machine state identification / unsupervised sequence models
+%    B. Non-Intrusive Load Monitoring (NILM)
+%    C. Industrial energy optimisation and standards
+%    D. Predictive shutdown and decision support
+%    E. Supporting method citations (forecasting, statistics, XAI)
+%
+%  ---------------------------------------------------------------
+%  ACCURACY NOTE: entries flagged "% VERIFY" have volume/issue/page
+%  details reconstructed from memory. Confirm every flagged field
+%  against the publisher record (DOI/Crossref) before submission.
+%  See paper/PHASE1_NOTES.md for the consolidated checklist.
+%  ---------------------------------------------------------------
+% =====================================================================
+
+
+% =====================================================================
+% THEME A -- MACHINE STATE IDENTIFICATION
+% =====================================================================
+
+@article{hart1992nonintrusive,
+  author  = {Hart, George W.},
+  title   = {Nonintrusive Appliance Load Monitoring},
+  journal = {Proceedings of the IEEE},
+  volume  = {80},
+  number  = {12},
+  pages   = {1870--1891},
+  year    = {1992},
+  doi     = {10.1109/5.192069}
+}
+
+@article{rabiner1989tutorial,
+  author  = {Rabiner, Lawrence R.},
+  title   = {A Tutorial on Hidden {M}arkov Models and Selected Applications
+             in Speech Recognition},
+  journal = {Proceedings of the IEEE},
+  volume  = {77},
+  number  = {2},
+  pages   = {257--286},
+  year    = {1989},
+  doi     = {10.1109/5.18626}
+}
+
+@book{mclachlan2000finite,
+  author    = {McLachlan, Geoffrey J. and Peel, David},
+  title     = {Finite Mixture Models},
+  publisher = {John Wiley \& Sons},
+  address   = {New York, NY, USA},
+  series    = {Wiley Series in Probability and Statistics},
+  year      = {2000},
+  doi       = {10.1002/0471721182}
+}
+
+@article{dempster1977em,
+  author  = {Dempster, Arthur P. and Laird, Nan M. and Rubin, Donald B.},
+  title   = {Maximum Likelihood from Incomplete Data via the {EM} Algorithm},
+  journal = {Journal of the Royal Statistical Society, Series B},
+  volume  = {39},
+  number  = {1},
+  pages   = {1--38},
+  year    = {1977}
+}
+
+@article{lloyd1982least,
+  author  = {Lloyd, Stuart P.},
+  title   = {Least Squares Quantization in {PCM}},
+  journal = {IEEE Transactions on Information Theory},
+  volume  = {28},
+  number  = {2},
+  pages   = {129--137},
+  year    = {1982},
+  doi     = {10.1109/TIT.1982.1056489}
+}
+
+@inproceedings{ester1996dbscan,
+  author    = {Ester, Martin and Kriegel, Hans-Peter and Sander, J{\"o}rg
+               and Xu, Xiaowei},
+  title     = {A Density-Based Algorithm for Discovering Clusters in Large
+               Spatial Databases with Noise},
+  booktitle = {Proceedings of the 2nd International Conference on Knowledge
+               Discovery and Data Mining (KDD)},
+  pages     = {226--231},
+  publisher = {AAAI Press},
+  year      = {1996}
+}
+
+@inproceedings{ng2001spectral,
+  author    = {Ng, Andrew Y. and Jordan, Michael I. and Weiss, Yair},
+  title     = {On Spectral Clustering: Analysis and an Algorithm},
+  booktitle = {Advances in Neural Information Processing Systems (NIPS)},
+  volume    = {14},
+  pages     = {849--856},
+  year      = {2001}
+}
+
+@article{campello2015hdbscan,
+  author  = {Campello, Ricardo J. G. B. and Moulavi, Davoud and Zimek, Arthur
+             and Sander, J{\"o}rg},
+  title   = {Hierarchical Density Estimates for Data Clustering, Visualization,
+             and Outlier Detection},
+  journal = {ACM Transactions on Knowledge Discovery from Data},
+  volume  = {10},
+  number  = {1},
+  pages   = {5:1--5:51},
+  year    = {2015},
+  doi     = {10.1145/2733381}
+}                                                    % VERIFY volume/article no.
+
+@article{yu2010hsmm,
+  author  = {Yu, Shun-Zheng},
+  title   = {Hidden Semi-{M}arkov Models},
+  journal = {Artificial Intelligence},
+  volume  = {174},
+  number  = {2},
+  pages   = {215--243},
+  year    = {2010},
+  doi     = {10.1016/j.artint.2009.11.011}
+}                                                    % VERIFY volume/pages
+
+@article{fox2011sticky,
+  author  = {Fox, Emily B. and Sudderth, Erik B. and Jordan, Michael I.
+             and Willsky, Alan S.},
+  title   = {A Sticky {HDP-HMM} with Application to Speaker Diarization},
+  journal = {The Annals of Applied Statistics},
+  volume  = {5},
+  number  = {2A},
+  pages   = {1020--1056},
+  year    = {2011},
+  doi     = {10.1214/10-AOAS395}
+}
+
+@article{schwarz1978bic,
+  author  = {Schwarz, Gideon},
+  title   = {Estimating the Dimension of a Model},
+  journal = {The Annals of Statistics},
+  volume  = {6},
+  number  = {2},
+  pages   = {461--464},
+  year    = {1978},
+  doi     = {10.1214/aos/1176344136}
+}
+
+@article{otsu1979threshold,
+  author  = {Otsu, Nobuyuki},
+  title   = {A Threshold Selection Method from Gray-Level Histograms},
+  journal = {IEEE Transactions on Systems, Man, and Cybernetics},
+  volume  = {9},
+  number  = {1},
+  pages   = {62--66},
+  year    = {1979},
+  doi     = {10.1109/TSMC.1979.4310076}
+}
+
+@article{rousseeuw1987silhouettes,
+  author  = {Rousseeuw, Peter J.},
+  title   = {Silhouettes: A Graphical Aid to the Interpretation and Validation
+             of Cluster Analysis},
+  journal = {Journal of Computational and Applied Mathematics},
+  volume  = {20},
+  pages   = {53--65},
+  year    = {1987},
+  doi     = {10.1016/0377-0427(87)90125-7}
+}
+
+@article{strehl2002cluster,
+  author  = {Strehl, Alexander and Ghosh, Joydeep},
+  title   = {Cluster Ensembles -- A Knowledge Reuse Framework for Combining
+             Multiple Partitions},
+  journal = {Journal of Machine Learning Research},
+  volume  = {3},
+  pages   = {583--617},
+  year    = {2002}
+}
+
+
+% =====================================================================
+% THEME B -- NON-INTRUSIVE LOAD MONITORING (NILM)
+% =====================================================================
+
+@article{zeifman2011nilm,
+  author  = {Zeifman, Michael and Roth, Kurt},
+  title   = {Nonintrusive Appliance Load Monitoring: Review and Outlook},
+  journal = {IEEE Transactions on Consumer Electronics},
+  volume  = {57},
+  number  = {1},
+  pages   = {76--84},
+  year    = {2011},
+  doi     = {10.1109/TCE.2011.5735484}
+}
+
+@inproceedings{kolter2012afamap,
+  author    = {Kolter, J. Zico and Jaakkola, Tommi},
+  title     = {Approximate Inference in Additive Factorial {HMM}s with
+               Application to Energy Disaggregation},
+  booktitle = {Proceedings of the 15th International Conference on Artificial
+               Intelligence and Statistics (AISTATS)},
+  series    = {PMLR},
+  volume    = {22},
+  pages     = {1472--1482},
+  year      = {2012}
+}
+
+@inproceedings{kolter2011redd,
+  author    = {Kolter, J. Zico and Johnson, Matthew J.},
+  title     = {{REDD}: A Public Data Set for Energy Disaggregation Research},
+  booktitle = {Proceedings of the SustKDD Workshop on Data Mining Applications
+               in Sustainability},
+  year      = {2011}
+}
+
+@inproceedings{kelly2015neuralnilm,
+  author    = {Kelly, Jack and Knottenbelt, William},
+  title     = {Neural {NILM}: Deep Neural Networks Applied to Energy
+               Disaggregation},
+  booktitle = {Proceedings of the 2nd ACM International Conference on Embedded
+               Systems for Energy-Efficient Built Environments (BuildSys)},
+  pages     = {55--64},
+  year      = {2015},
+  doi       = {10.1145/2821650.2821672}
+}
+
+@inproceedings{zhang2018seq2point,
+  author    = {Zhang, Chaoyun and Zhong, Mingjun and Wang, Zongzuo and
+               Goddard, Nigel and Sutton, Charles},
+  title     = {Sequence-to-Point Learning with Neural Networks for
+               Non-Intrusive Load Monitoring},
+  booktitle = {Proceedings of the 32nd AAAI Conference on Artificial
+               Intelligence (AAAI)},
+  pages     = {2604--2611},
+  year      = {2018}
+}
+
+@article{bonfigli2018denoising,
+  author  = {Bonfigli, Roberto and Felicetti, Andrea and Principi, Emanuele
+             and Fagiani, Marco and Squartini, Stefano and Piazza, Francesco},
+  title   = {Denoising Autoencoders for Non-Intrusive Load Monitoring:
+             Improvements and Comparative Evaluation},
+  journal = {Energy and Buildings},
+  volume  = {158},
+  pages   = {1461--1474},
+  year    = {2018},
+  doi     = {10.1016/j.enbuild.2017.11.054}
+}                                                    % VERIFY volume/pages
+
+@inproceedings{batra2014nilmtk,
+  author    = {Batra, Nipun and Kelly, Jack and Parson, Oliver and Dutta,
+               Haimonti and Knottenbelt, William and Rogers, Alex and
+               Singh, Amarjeet and Srivastava, Mani},
+  title     = {{NILMTK}: An Open Source Toolkit for Non-Intrusive Load
+               Monitoring},
+  booktitle = {Proceedings of the 5th International Conference on Future
+               Energy Systems (e-Energy)},
+  pages     = {265--276},
+  year      = {2014},
+  doi       = {10.1145/2602044.2602051}
+}
+
+@article{makonin2015performance,
+  author  = {Makonin, Stephen and Popowich, Fred},
+  title   = {Nonintrusive Load Monitoring ({NILM}) Performance Evaluation:
+             A Unified Approach for Accuracy Reporting},
+  journal = {Energy Efficiency},
+  volume  = {8},
+  number  = {4},
+  pages   = {809--814},
+  year    = {2015},
+  doi     = {10.1007/s12053-014-9306-2}
+}
+
+@inproceedings{holmegaard2016industrial,
+  author    = {Holmegaard, Emil and Kj{\ae}rgaard, Mikkel Baun},
+  title     = {{NILM} in an Industrial Setting: A Load Characterization and
+               Algorithm Evaluation},
+  booktitle = {Proceedings of the IEEE International Conference on Smart
+               Computing (SMARTCOMP)},
+  year      = {2016},
+  doi       = {10.1109/SMARTCOMP.2016.7501697}
+}                                                    % VERIFY DOI/pages
+
+@inproceedings{martins2018imdeld,
+  author    = {Martins, Pedro Bandeira de Mello and Gomes, Jos{\'e} Gabriel
+               R. C. and Nascimento, Vagner Barbosa and
+               de Freitas, Adrian Rodrigues},
+  title     = {Application of a Deep Learning Generative Model to Load
+               Disaggregation for Industrial Machinery Power Consumption
+               Monitoring},
+  booktitle = {Proceedings of the IEEE International Conference on
+               Communications, Control, and Computing Technologies for Smart
+               Grids (SmartGridComm)},
+  year      = {2018},
+  doi       = {10.1109/SmartGridComm.2018.8587415}
+}                                                    % VERIFY author list/DOI
+
+@misc{imdeld2018dataset,
+  author       = {Martins, Pedro Bandeira de Mello and Nascimento, Vagner Barbosa
+                  and de Freitas, Adrian Rodrigues and
+                  Gomes, Jos{\'e} Gabriel R. C.},
+  title        = {{IMDELD}: Industrial Machines Dataset for Electrical Load
+                  Disaggregation},
+  howpublished = {IEEE DataPort},
+  year         = {2018},
+  doi          = {10.21227/cg5v-dk02}
+}
+
+@article{schirmer2023nilmreview,
+  author  = {Schirmer, Pascal A. and Mporas, Iosif},
+  title   = {Non-Intrusive Load Monitoring: A Review},
+  journal = {IEEE Transactions on Smart Grid},
+  volume  = {14},
+  number  = {1},
+  pages   = {769--784},
+  year    = {2023},
+  doi     = {10.1109/TSG.2022.3189598}
+}                                                    % VERIFY volume/pages/DOI
+
+
+% =====================================================================
+% THEME C -- INDUSTRIAL ENERGY OPTIMISATION AND STANDARDS
+% =====================================================================
+
+@article{duflou2012towards,
+  author  = {Duflou, Joost R. and Sutherland, John W. and Dornfeld, David and
+             Herrmann, Christoph and Jeswiet, Jack and Kara, Sami and
+             Hauschild, Michael and Kellens, Karel},
+  title   = {Towards Energy and Resource Efficient Manufacturing: A Processes
+             and Systems Approach},
+  journal = {CIRP Annals -- Manufacturing Technology},
+  volume  = {61},
+  number  = {2},
+  pages   = {587--609},
+  year    = {2012},
+  doi     = {10.1016/j.cirp.2012.05.002}
+}
+
+@article{kara2011unit,
+  author  = {Kara, Sami and Li, Wen},
+  title   = {Unit Process Energy Consumption Models for Material Removal
+             Processes},
+  journal = {CIRP Annals -- Manufacturing Technology},
+  volume  = {60},
+  number  = {1},
+  pages   = {37--40},
+  year    = {2011},
+  doi     = {10.1016/j.cirp.2011.03.018}
+}
+
+@inproceedings{gutowski2006electrical,
+  author    = {Gutowski, Timothy and Dahmus, Jeffrey and Thiriez, Alex},
+  title     = {Electrical Energy Requirements for Manufacturing Processes},
+  booktitle = {Proceedings of the 13th CIRP International Conference on Life
+               Cycle Engineering},
+  address   = {Leuven, Belgium},
+  pages     = {623--628},
+  year      = {2006}
+}                                                    % VERIFY pages
+
+@inproceedings{dahmus2004environmental,
+  author    = {Dahmus, Jeffrey B. and Gutowski, Timothy G.},
+  title     = {An Environmental Analysis of Machining},
+  booktitle = {ASME International Mechanical Engineering Congress and
+               Exposition (IMECE)},
+  pages     = {643--652},
+  year      = {2004},
+  doi       = {10.1115/IMECE2004-62600}
+}                                                    % VERIFY pages/DOI
+
+@article{devoldere2007improvement,
+  author  = {Devoldere, Tom and Dewulf, Wim and Deprez, Wim and
+             Willems, Barbara and Duflou, Joost R.},
+  title   = {Improvement Potential for Energy Consumption in Discrete Part
+             Production Machines},
+  journal = {Advances in Life Cycle Engineering for Sustainable Manufacturing
+             Businesses},
+  pages   = {311--316},
+  year    = {2007},
+  doi     = {10.1007/978-1-84628-935-4_54}
+}                                                    % VERIFY -- book chapter
+
+@misc{iso50001,
+  author       = {{International Organization for Standardization}},
+  title        = {{ISO} 50001:2018 -- Energy Management Systems --
+                  Requirements with Guidance for Use},
+  howpublished = {Standard},
+  address      = {Geneva, Switzerland},
+  year         = {2018}
+}
+
+@misc{iso14955,
+  author       = {{International Organization for Standardization}},
+  title        = {{ISO} 14955-1:2017 -- Machine Tools -- Environmental
+                  Evaluation of Machine Tools -- Part 1: Design Methodology
+                  for Energy-Efficient Machine Tools},
+  howpublished = {Standard},
+  address      = {Geneva, Switzerland},
+  year         = {2017}
+}
+
+@misc{iec61131,
+  author       = {{International Electrotechnical Commission}},
+  title        = {{IEC} 61131-3:2013 -- Programmable Controllers --
+                  Part 3: Programming Languages},
+  howpublished = {Standard},
+  address      = {Geneva, Switzerland},
+  year         = {2013}
+}
+
+
+% =====================================================================
+% THEME D -- PREDICTIVE SHUTDOWN AND DECISION SUPPORT
+% =====================================================================
+
+@article{mouzon2007operational,
+  author  = {Mouzon, Gilles and Yildirim, Mehmet B. and Twomey, Janet},
+  title   = {Operational Methods for Minimization of Energy Consumption of
+             Manufacturing Equipment},
+  journal = {International Journal of Production Research},
+  volume  = {45},
+  number  = {18--19},
+  pages   = {4247--4271},
+  year    = {2007},
+  doi     = {10.1080/00207540701450013}
+}
+
+@article{mouzon2008framework,
+  author  = {Mouzon, Gilles and Yildirim, Mehmet B.},
+  title   = {A Framework to Minimise Total Energy Consumption and Total
+             Tardiness on a Single Machine},
+  journal = {International Journal of Sustainable Engineering},
+  volume  = {1},
+  number  = {2},
+  pages   = {105--116},
+  year    = {2008},
+  doi     = {10.1080/19397030802257236}
+}                                                    % VERIFY volume/pages
+
+@article{chen2013schedule,
+  author  = {Chen, Guoxian and Zhang, Lin and Arinez, Jorge and Biller, Stephan},
+  title   = {Energy-Efficient Production Systems Through Schedule-Based
+             Operations},
+  journal = {IEEE Transactions on Automation Science and Engineering},
+  volume  = {10},
+  number  = {1},
+  pages   = {27--37},
+  year    = {2013},
+  doi     = {10.1109/TASE.2012.2202226}
+}                                                    % VERIFY DOI
+
+@article{sun2013opportunity,
+  author  = {Sun, Zeyi and Li, Lin},
+  title   = {Opportunity Estimation for Real-Time Energy Control of
+             Sustainable Manufacturing Systems},
+  journal = {IEEE Transactions on Automation Science and Engineering},
+  volume  = {10},
+  number  = {1},
+  pages   = {38--44},
+  year    = {2013},
+  doi     = {10.1109/TASE.2012.2216876}
+}                                                    % VERIFY DOI
+
+@article{frigerio2015energy,
+  author  = {Frigerio, Nicla and Matta, Andrea},
+  title   = {Energy-Efficient Control Strategies for Machine Tools with
+             Stochastic Arrivals},
+  journal = {IEEE Transactions on Automation Science and Engineering},
+  volume  = {12},
+  number  = {1},
+  pages   = {50--61},
+  year    = {2015},
+  doi     = {10.1109/TASE.2014.2344507}
+}                                                    % VERIFY DOI
+
+@article{he2015energy,
+  author  = {He, Yan and Li, Yufeng and Wu, Tao and Sutherland, John W.},
+  title   = {An Energy-Responsive Optimization Method for Machine Tool
+             Selection and Operation Sequence in Flexible Machining Job Shops},
+  journal = {Journal of Cleaner Production},
+  volume  = {87},
+  pages   = {245--254},
+  year    = {2015},
+  doi     = {10.1016/j.jclepro.2014.10.006}
+}                                                    % VERIFY volume/pages
+
+@article{li2016energy,
+  author  = {Li, Lin and Sun, Zeyi},
+  title   = {Dynamic Energy Control for Energy Efficiency Improvement of
+             Sustainable Manufacturing Systems Using {M}arkov Decision Process},
+  journal = {IEEE Transactions on Systems, Man, and Cybernetics: Systems},
+  volume  = {43},
+  number  = {5},
+  pages   = {1195--1205},
+  year    = {2013},
+  doi     = {10.1109/TSMC.2013.2256856}
+}                                                    % VERIFY volume/pages/DOI
+
+
+% =====================================================================
+% THEME E -- SUPPORTING METHOD CITATIONS
+% (forecasting baselines, statistics, explainability -- cited in
+%  Phases II, V, VI; listed here so the .bib is complete)
+% =====================================================================
+
+@article{hochreiter1997lstm,
+  author  = {Hochreiter, Sepp and Schmidhuber, J{\"u}rgen},
+  title   = {Long Short-Term Memory},
+  journal = {Neural Computation},
+  volume  = {9},
+  number  = {8},
+  pages   = {1735--1780},
+  year    = {1997},
+  doi     = {10.1162/neco.1997.9.8.1735}
+}
+
+@inproceedings{sutskever2014seq2seq,
+  author    = {Sutskever, Ilya and Vinyals, Oriol and Le, Quoc V.},
+  title     = {Sequence to Sequence Learning with Neural Networks},
+  booktitle = {Advances in Neural Information Processing Systems (NIPS)},
+  volume    = {27},
+  pages     = {3104--3112},
+  year      = {2014}
+}
+
+@inproceedings{cho2014gru,
+  author    = {Cho, Kyunghyun and van Merri{\"e}nboer, Bart and Gulcehre,
+               Caglar and Bahdanau, Dzmitry and Bougares, Fethi and
+               Schwenk, Holger and Bengio, Yoshua},
+  title     = {Learning Phrase Representations Using {RNN} Encoder--Decoder
+               for Statistical Machine Translation},
+  booktitle = {Proceedings of the 2014 Conference on Empirical Methods in
+               Natural Language Processing (EMNLP)},
+  pages     = {1724--1734},
+  year      = {2014},
+  doi       = {10.3115/v1/D14-1179}
+}
+
+@article{bai2018tcn,
+  author  = {Bai, Shaojie and Kolter, J. Zico and Koltun, Vladlen},
+  title   = {An Empirical Evaluation of Generic Convolutional and Recurrent
+             Networks for Sequence Modeling},
+  journal = {arXiv preprint arXiv:1803.01271},
+  year    = {2018}
+}
+
+@inproceedings{nie2023patchtst,
+  author    = {Nie, Yuqi and Nguyen, Nam H. and Sinthong, Phanwadee and
+               Kalagnanam, Jayant},
+  title     = {A Time Series is Worth 64 Words: Long-Term Forecasting with
+               Transformers},
+  booktitle = {International Conference on Learning Representations (ICLR)},
+  year      = {2023}
+}
+
+@inproceedings{chen2016xgboost,
+  author    = {Chen, Tianqi and Guestrin, Carlos},
+  title     = {{XGBoost}: A Scalable Tree Boosting System},
+  booktitle = {Proceedings of the 22nd ACM SIGKDD International Conference on
+               Knowledge Discovery and Data Mining (KDD)},
+  pages     = {785--794},
+  year      = {2016},
+  doi       = {10.1145/2939672.2939785}
+}
+
+@inproceedings{lundberg2017shap,
+  author    = {Lundberg, Scott M. and Lee, Su-In},
+  title     = {A Unified Approach to Interpreting Model Predictions},
+  booktitle = {Advances in Neural Information Processing Systems (NIPS)},
+  volume    = {30},
+  pages     = {4765--4774},
+  year      = {2017}
+}
+
+@article{wilcoxon1945individual,
+  author  = {Wilcoxon, Frank},
+  title   = {Individual Comparisons by Ranking Methods},
+  journal = {Biometrics Bulletin},
+  volume  = {1},
+  number  = {6},
+  pages   = {80--83},
+  year    = {1945},
+  doi     = {10.2307/3001968}
+}
+
+@article{friedman1937use,
+  author  = {Friedman, Milton},
+  title   = {The Use of Ranks to Avoid the Assumption of Normality Implicit in
+             the Analysis of Variance},
+  journal = {Journal of the American Statistical Association},
+  volume  = {32},
+  number  = {200},
+  pages   = {675--701},
+  year    = {1937},
+  doi     = {10.1080/01621459.1937.10503522}
+}
+
+@article{demsar2006statistical,
+  author  = {Dem{\v{s}}ar, Janez},
+  title   = {Statistical Comparisons of Classifiers over Multiple Data Sets},
+  journal = {Journal of Machine Learning Research},
+  volume  = {7},
+  pages   = {1--30},
+  year    = {2006}
+}
+
+@article{pedregosa2011sklearn,
+  author  = {Pedregosa, Fabian and Varoquaux, Ga{\"e}l and Gramfort, Alexandre
+             and Michel, Vincent and Thirion, Bertrand and Grisel, Olivier
+             and Blondel, Mathieu and Prettenhofer, Peter and Weiss, Ron and
+             Dubourg, Vincent and Vanderplas, Jake and Passos, Alexandre and
+             Cournapeau, David and Brucher, Matthieu and Perrot, Matthieu and
+             Duchesnay, {\'E}douard},
+  title   = {Scikit-learn: Machine Learning in {P}ython},
+  journal = {Journal of Machine Learning Research},
+  volume  = {12},
+  pages   = {2825--2830},
+  year    = {2011}
+}
+
+
+% =====================================================================
+% PHASE III ADDITIONS -- ONLINE DECISION THEORY, CHANCE CONSTRAINTS,
+% AND RETRANSFORMATION
+% =====================================================================
+
+@article{karlin1994competitive,
+  author  = {Karlin, Anna R. and Manasse, Mark S. and McGeoch, Lyle A. and
+             Owicki, Susan},
+  title   = {Competitive Randomized Algorithms for Nonuniform Problems},
+  journal = {Algorithmica},
+  volume  = {11},
+  number  = {6},
+  pages   = {542--571},
+  year    = {1994},
+  doi     = {10.1007/BF01189993}
+}                        % ski-rental / spin-block; source of the 2-competitive
+                         % deterministic bound used for the elapsed-time policy
+
+@article{karlin1988competitive,
+  author  = {Karlin, Anna R. and Manasse, Mark S. and Rudolph, Larry and
+             Sleator, Daniel D.},
+  title   = {Competitive Snoopy Caching},
+  journal = {Algorithmica},
+  volume  = {3},
+  number  = {1},
+  pages   = {79--119},
+  year    = {1988},
+  doi     = {10.1007/BF01762111}
+}                        % original rent-or-buy formulation
+
+@article{albers2003online,
+  author  = {Albers, Susanne},
+  title   = {Online Algorithms: A Survey},
+  journal = {Mathematical Programming},
+  volume  = {97},
+  number  = {1--2},
+  pages   = {3--26},
+  year    = {2003},
+  doi     = {10.1007/s10107-003-0436-0}
+}
+
+@article{irani2003online,
+  author  = {Irani, Sandy and Shukla, Sandeep and Gupta, Rajesh},
+  title   = {Online Strategies for Dynamic Power Management in Systems with
+             Multiple Power-Saving States},
+  journal = {ACM Transactions on Embedded Computing Systems},
+  volume  = {2},
+  number  = {3},
+  pages   = {325--346},
+  year    = {2003},
+  doi     = {10.1145/860176.860180}
+}                        % the same rent-or-buy structure applied to
+                         % device power-down; closest prior art to our policy
+
+@article{charnes1959chance,
+  author  = {Charnes, Abraham and Cooper, William W.},
+  title   = {Chance-Constrained Programming},
+  journal = {Management Science},
+  volume  = {6},
+  number  = {1},
+  pages   = {73--79},
+  year    = {1959},
+  doi     = {10.1287/mnsc.6.1.73}
+}
+
+@article{duan1983smearing,
+  author  = {Duan, Naihua},
+  title   = {Smearing Estimate: A Nonparametric Retransformation Method},
+  journal = {Journal of the American Statistical Association},
+  volume  = {78},
+  number  = {383},
+  pages   = {605--610},
+  year    = {1983},
+  doi     = {10.1080/01621459.1983.10478017}
+}
+
+@article{gneiting2011making,
+  author  = {Gneiting, Tilmann},
+  title   = {Making and Evaluating Point Forecasts},
+  journal = {Journal of the American Statistical Association},
+  volume  = {106},
+  number  = {494},
+  pages   = {746--762},
+  year    = {2011},
+  doi     = {10.1198/jasa.2011.r10138}
+}                        % elicitability: which functional a loss function
+                         % targets -- the mean-vs-median estimand argument
