@@ -336,11 +336,26 @@ def prepare(
     train_fraction: float = 0.70,
     epoch_s: float = DECISION_EPOCH_S,
     seed: int = 0,
+    source: str = "auto",
+    split_ts=None,
 ) -> dict:
     """
     Everything Task 6 and Task 7 both need: the labelled record reduced to idle
     episodes, the measured restart signature, the chronological split, and the
     fitted forecaster and feasibility models.
+
+    `source` selects which labelling to read (see `experiments.common.
+    resolve_labelled`).  It defaults to `auto`, which is what Phase III was
+    computed from; Phase IV passes `phase4` so that all eight machines are
+    processed through one identical labelling procedure.
+
+    `split_ts` overrides the 70/30 split on episode COUNT with a split at a
+    given instant.  The two are the same thing when the labelling is fixed, but
+    not when two labellings are being compared on one machine: a labelling that
+    merges spurious micro-episodes produces fewer episodes, so the 70th
+    percentile of the episode index falls at a different date and the two runs
+    would be scored on different weeks.  Phase IV's label-source comparison
+    passes an instant so that both runs are tested on the same calendar window.
 
     Shared rather than duplicated so the sensitivity analysis is guaranteed to
     sweep the SAME fitted models and the SAME held-out episodes the headline
@@ -349,7 +364,8 @@ def prepare(
     """
     cfg = MACHINES[machine]
 
-    df, meta = load_labelled(machine, drop_spikes=False, add_features=False)
+    df, meta = load_labelled(machine, drop_spikes=False, add_features=False,
+                             source=source)
     dt = float(meta["sample_interval_s"])
     covered_s = len(df) * dt
     span_days = (df["timestamp"].max() - df["timestamp"].min()).days
@@ -366,7 +382,10 @@ def prepare(
     del df
 
     ep = ep.sort_values("start_ts").reset_index(drop=True)
-    cut = int(len(ep) * train_fraction)
+    if split_ts is not None:
+        cut = int((ep["start_ts"] < pd.Timestamp(split_ts)).sum())
+    else:
+        cut = int(len(ep) * train_fraction)
     ep_tr = ep.iloc[:cut].reset_index(drop=True)
     ep_te = ep.iloc[cut:].reset_index(drop=True)
 

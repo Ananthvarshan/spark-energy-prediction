@@ -51,25 +51,101 @@ from src.features import (               # noqa: E402
 
 # ── Machine registry (mirrors validate_gmm.MACHINES) ──────────────────────────
 
+def _imdeld(key: str, raw: str, name: str) -> dict:
+    """
+    One IMDELD machine.  Every machine in the facility shares the schedule
+    (the plant halts weekdays 17:00-22:00 to avoid the peak tariff and does
+    not run at weekends), so the calendar fields are constant here; the
+    per-machine entry exists so a future dataset with a different schedule
+    can be added without touching any experiment.
+
+    `labelled` is the Phase I-III export from validate_gmm.py and exists only
+    for pelletizer-I.  `labelled_phase4` is the uniform re-labelling produced
+    by src/labelling.py for the cross-machine comparison.  Which one an
+    experiment loads is an explicit argument, never a fallback -- see
+    `load_labelled`.
+    """
+    return {
+        "raw": raw,
+        "labelled": f"outputs/imdeld_labelled/{key}_labelled.csv",
+        "labelled_phase4": f"outputs/phase4/labelled/{key}_labelled.parquet",
+        "name": name,
+        "factory_tz": "America/Sao_Paulo",
+        "close_hour": 17,
+        "open_hour": 22,
+    }
+
+
 MACHINES: dict[str, dict] = {
-    "pelletizer-I": {
-        "labelled": "outputs/imdeld_labelled/pelletizer-I_labelled.csv",
-        "name": "Pelletizer I (IMDELD)",
-        "factory_tz": "America/Sao_Paulo",
-        "close_hour": 17,
-        "open_hour": 22,
-    },
-    "pelletizer-II": {
-        "labelled": "outputs/imdeld_labelled/pelletizer-II_labelled.csv",
-        "name": "Pelletizer II (IMDELD)",
-        "factory_tz": "America/Sao_Paulo",
-        "close_hour": 17,
-        "open_hour": 22,
-    },
+    "pelletizer-I":   _imdeld("pelletizer-I", "data/Appliances/pelletizer-I.csv",
+                              "Pelletizer I (IMDELD)"),
+    "pelletizer-II":  _imdeld("pelletizer-II", "data/Appliances/pelletizer-II.csv",
+                              "Pelletizer II (IMDELD)"),
+    "milling-I":      _imdeld("milling-I", "data/Appliances/millingmachine-I.csv",
+                              "Milling Machine I (IMDELD)"),
+    "milling-II":     _imdeld("milling-II", "data/Appliances/millingmachine-II.csv",
+                              "Milling Machine II (IMDELD)"),
+    "exhaust-fan-I":  _imdeld("exhaust-fan-I", "data/Appliances/exhaustfan-I.csv",
+                              "Exhaust Fan I (IMDELD)"),
+    "exhaust-fan-II": _imdeld("exhaust-fan-II", "data/Appliances/exhaustfan-II.csv",
+                              "Exhaust Fan II (IMDELD)"),
+    "dpc-I":          _imdeld("dpc-I", "data/Appliances/doublepolecontactor-I.csv",
+                              "Double-Pole Contactor I (IMDELD)"),
+    "dpc-II":         _imdeld("dpc-II", "data/Appliances/doublepolecontactor-II.csv",
+                              "Double-Pole Contactor II (IMDELD)"),
 }
 DEFAULT_MACHINE = "pelletizer-I"
 
+# The eight machines in the order Task 8 reports them: the two pelletizers
+# (Phases I-III's subject), then the two milling machines, then the auxiliary
+# plant.  Keys match validate_gmm.MACHINES.
+IMDELD_MACHINES = list(MACHINES)
+
+
+# ── Task 10: a second dataset ─────────────────────────────────────────────────
+#
+# Single-channel active-power records at 5 s over the whole of 2024, from a
+# different site and a different acquisition system.  They are registered here
+# so that every experiment can address them by key exactly like a machine --
+# which is the point of Task 10: the pipeline should not need to know that its
+# input came from somewhere else.
+#
+# `schedule_known` is False for both.  IMDELD publishes its plant calendar and
+# test T10 scores a partition against it; nothing equivalent is available here,
+# so the schedule metric is not reported for these records and the calendar
+# FEATURES of the decision forecaster are uninformative on them.  That is part
+# of what Task 10 measures, and it is recorded rather than papered over with a
+# guessed shift pattern.
+SPARK_DATASETS: dict[str, dict] = {
+    "spark-cnc": {
+        "raw": "data/2024_P_total.csv.xz",
+        "column": "P_total",
+        "labelled": None,
+        "labelled_phase4": "outputs/phase4/labelled/spark-cnc_labelled.parquet",
+        "name": "CNC machining centre, total power (SPARK 2024)",
+        "role": "held-out industrial machine, second dataset",
+        "factory_tz": "UTC",
+        "close_hour": 17,
+        "open_hour": 22,
+        "schedule_known": False,
+    },
+    "spark-solar": {
+        "raw": "data/2024_AC_ActivePower.csv.xz",
+        "column": "AC_ActivePower",
+        "labelled": None,
+        "labelled_phase4": "outputs/phase4/labelled/spark-solar_labelled.parquet",
+        "name": "PV inverter AC output (SPARK 2024)",
+        "role": "negative control -- a generator, not a driven load",
+        "factory_tz": "UTC",
+        "close_hour": 17,
+        "open_hour": 22,
+        "schedule_known": False,
+    },
+}
+MACHINES.update(SPARK_DATASETS)
+
 PHASE2_DIR = "outputs/phase2"
+PHASE4_DIR = "outputs/phase4"
 
 # Canonical state ordering, ascending in active power.
 STATE_ORDER = ["OFF", "STANDBY", "WORKING", "PEAK_LOAD"]
@@ -133,6 +209,51 @@ def _json_default(o):
 
 # ── Data loading ──────────────────────────────────────────────────────────────
 
+def resolve_labelled(machine_key: str, source: str = "auto") -> tuple[str, str]:
+    """
+    Return (path, source) for a machine's labels.
+
+    THREE SOURCES, AND WHY THE CHOICE IS EXPLICIT
+    ---------------------------------------------
+    `reference`  the validate_gmm.py CSV export.  Phases I-III were computed
+                 from it and it exists only for pelletizer-I.
+    `phase4`     the uniform re-labelling from src/labelling.py, which exists
+                 for every machine and applies one procedure to all of them.
+    `auto`       reference if present, else phase4.
+
+    An experiment that compares machines must pass `phase4` explicitly.  If it
+    took `auto`, pelletizer-I would be scored under the Phase I-III procedure
+    and every other machine under the Phase IV one, and any difference between
+    them would be unattributable.  `auto` exists so that Phase II and Phase III
+    keep loading exactly the file they were computed from.
+    """
+    if machine_key not in MACHINES:
+        raise KeyError(f"Unknown machine '{machine_key}'. Choose from {list(MACHINES)}")
+    cfg = MACHINES[machine_key]
+    ref, p4 = cfg.get("labelled"), cfg.get("labelled_phase4")
+
+    if source == "reference":
+        if not ref or not os.path.exists(ref):
+            raise FileNotFoundError(
+                f"No reference export for {machine_key}: {ref}\n"
+                f"Run:  python validate_gmm.py {machine_key}")
+        return ref, "reference"
+    if source == "phase4":
+        if not p4 or not os.path.exists(p4):
+            raise FileNotFoundError(
+                f"No Phase IV labelling for {machine_key}: {p4}\n"
+                f"Run:  python run_phase4.py --only label")
+        return p4, "phase4"
+    if source != "auto":
+        raise ValueError(f"unknown source '{source}'")
+    if ref and os.path.exists(ref):
+        return ref, "reference"
+    if p4 and os.path.exists(p4):
+        return p4, "phase4"
+    raise FileNotFoundError(
+        f"No labels for {machine_key}. Expected {ref} or {p4}.")
+
+
 def load_labelled(
     machine_key: str = DEFAULT_MACHINE,
     drop_spikes: bool = True,
@@ -140,10 +261,14 @@ def load_labelled(
     roll_window_s: float = 300.0,
     nrows: int | None = None,
     verbose: bool = True,
+    source: str = "auto",
 ) -> tuple[pd.DataFrame, dict]:
     """
-    Load the GMM-HMM-labelled CSV produced by validate_gmm.py and attach the
-    Task 3 engineered features.
+    Load a machine's labelled record and attach the Task 3 engineered features.
+
+    Reads either the Phase I-III CSV export or the Phase IV parquet labelling
+    (see `resolve_labelled`); the returned frame has the same columns either
+    way, so every experiment written against the CSV works unchanged.
 
     Spike rows (rolling-MAD flagged, ~19.5% on pelletizer-I) are dropped by
     default, matching lstm_pipeline.py.  They are measurement artefacts and
@@ -152,20 +277,23 @@ def load_labelled(
 
     Returns (df, meta).
     """
-    if machine_key not in MACHINES:
-        raise KeyError(f"Unknown machine '{machine_key}'. "
-                       f"Choose from {list(MACHINES)}")
     cfg = MACHINES[machine_key]
-    path = cfg["labelled"]
-    if not os.path.exists(path):
-        raise FileNotFoundError(
-            f"Labelled CSV not found: {path}\n"
-            f"Run:  python validate_gmm.py {machine_key}"
-        )
+    path, resolved = resolve_labelled(machine_key, source)
 
     if verbose:
-        info(f"loading {path}")
-    df = pd.read_csv(path, nrows=nrows)
+        info(f"loading {path}  [{resolved}]")
+    if path.endswith(".parquet"):
+        df = pd.read_parquet(path)
+        if nrows:
+            df = df.iloc[:nrows].copy()
+        # Parquet stores the state columns as dictionaries; the experiments
+        # compare them with `==` against plain strings and index them with
+        # numpy masks, so they are materialised as object dtype here.
+        for col in ("state", "state_raw"):
+            if col in df.columns and str(df[col].dtype) == "category":
+                df[col] = df[col].astype(object)
+    else:
+        df = pd.read_csv(path, nrows=nrows)
     n_raw = len(df)
     df["timestamp"] = pd.to_datetime(df["timestamp"], utc=True)
 
@@ -195,6 +323,7 @@ def load_labelled(
         "machine_key": machine_key,
         "machine_name": cfg["name"],
         "labelled_path": path,
+        "label_source": resolved,
         "n_rows_raw": n_raw,
         "n_rows_clean": len(df),
         "sample_interval_s": sample_interval_s,
@@ -706,3 +835,43 @@ def standby_hours(
     """Total hours labelled STANDBY across the evaluated blocks."""
     n = sum(int((s == "STANDBY").sum()) for s in states_blocks)
     return n * sample_interval_s / 3600.0
+
+
+# ── When the decision problem does not exist ──────────────────────────────────
+
+# Standby power below which de-energising cannot save anything.  Phase III's
+# whole objective is `standby_cost_per_s * off_seconds - restart_cost`, and the
+# first term is proportional to standby power; at ~0 W the break-even point is
+# infinite, `params_for_break_even` is solving for a delay valuation that makes
+# a zero saving equal a positive cost, and every currency figure it returns is
+# an artefact of dividing by something that is numerically zero.
+MIN_STANDBY_POWER_W = 1.0
+
+# Cold starts below which the measured restart signature is not identified.
+MIN_COLD_STARTS = 20
+
+
+def degenerate_reason(standby_power_w: float, restart_signature: dict) -> str | None:
+    """
+    Return why the decision problem is ill-posed for a record, or None.
+
+    Phase III could assume the problem was well posed because pelletizer-I has
+    a 3.8 kW no-load band and 126 observed cold starts.  Across eight machines
+    and two datasets neither holds everywhere: the facility's auxiliary plant
+    is either running or off, with no measurable energised-idle state, and some
+    records never show the machine resuming production from cold.
+
+    Reporting "no saving is available here" is a result.  Reporting a currency
+    figure computed by dividing by a standby power of 0.4 W is not.
+    """
+    if not np.isfinite(standby_power_w) or standby_power_w < MIN_STANDBY_POWER_W:
+        return (f"standby power is {standby_power_w:.2f} W (< {MIN_STANDBY_POWER_W} W): "
+                f"the machine has no measurable energised-idle state, so "
+                f"de-energising it saves nothing and no shutdown decision exists")
+    delay = restart_signature.get("restart_delay_s")
+    if delay is None or not np.isfinite(delay) or delay <= 0:
+        return ("no positive cold-vs-warm restart delay is measurable, so the "
+                "break-even point cannot be located on this record")
+    if (restart_signature.get("n_cold") or 0) < MIN_COLD_STARTS:
+        return None          # usable, but flagged as unidentified by the caller
+    return None
