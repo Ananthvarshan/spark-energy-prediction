@@ -290,6 +290,11 @@ NEURAL_BUILDERS = {
 }
 
 MODEL_INFO = {
+    # Untrained reference.  Every trained model below has to beat "the machine
+    # stays in the state it is in", which needs no data, no fitting and no
+    # hyperparameters; a comparison among trained models alone cannot show that
+    # training bought anything.
+    "persistence":  ("Persistence (no training)", "naive reference"),
     "seq2seq_lstm": ("Seq2Seq LSTM (proposed)", "Sutskever et al. (2014)"),
     "vanilla_lstm": ("Vanilla LSTM",            "Hochreiter & Schmidhuber (1997)"),
     "gru":          ("GRU encoder-decoder",     "Cho et al. (2014)"),

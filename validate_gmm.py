@@ -16,7 +16,8 @@ TEN INDEPENDENT TESTS + STATE-TIME BREAKDOWN
 ---------------------------------------------
 T1   Data Sanity           -- non-empty, no NaN, IMDELD features OK
 T2   GMM Convergence       -- EM algorithm converged?
-T3   k-Selection           -- Silhouette + BIC agree on k?
+T3   k-Selection           -- Physics-priority selection; BIC shown
+                            as a diagnostic (it does not identify k here)
 T4   State Separation      -- cluster means >= 2-sigma apart?
 T5   Soft-Assignment       -- model is confident (max-prob > 80%)?
 T6   Weight Sanity         -- no ghost clusters (<0.5%)?
@@ -2259,7 +2260,7 @@ def main():
     results = {
         "T1   Data Sanity (rows, no-NaN, IMDELD features)":   t1,
         "T2   GMM Convergence (EM algorithm)":                  t2,
-        "T3   k Selection (BIC+physical filters agree)":        t3,
+        "T3   k Selection (physics-priority; BIC diagnostic)":  t3,
         "T4   Physical Separation (2-sigma between states)":    t4,
         "T5   Soft-Assignment Confidence (>80% in >70%)":       t5,
         "T6   Cluster Weight Sanity (no ghost clusters)":       t6,

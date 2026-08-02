@@ -103,8 +103,13 @@ XGB_PARAMS = dict(
     n_jobs=-1, tree_method="hist",
 )
 
-ALL_MODELS = ["seq2seq_lstm", "vanilla_lstm", "gru", "tcn",
+ALL_MODELS = ["persistence", "seq2seq_lstm", "vanilla_lstm", "gru", "tcn",
               "transformer", "xgboost"]
+
+# Models with no fitted parameters, so a seed changes nothing and one run is
+# the whole distribution.  Kept explicit so `--seeds 25` does not silently
+# report a standard deviation of zero as if it had been measured.
+DETERMINISTIC_MODELS = {"persistence"}
 
 
 # ── Windowing ─────────────────────────────────────────────────────────────────
@@ -127,13 +132,22 @@ def make_windows(
     stride_rows: int,
     target_col: str = "state_id",
     segment_col: str = "segment_id",
-) -> tuple[np.ndarray, np.ndarray]:
+    return_last_state: bool = False,
+):
     """
     Sliding windows that never cross a segment boundary.
 
-    Returns X (n, lookback, n_features) float32 and y (n, horizon) int16.
+    Returns X (n, lookback, n_features) float32 and y (n, horizon) int16, and
+    with `return_last_state=True` also the state at the FINAL LOOKBACK STEP
+    (n,) int16.
+
+    That third output exists for the persistence baseline: "the machine stays
+    in the state it is in" is the forecast any controller can make without a
+    model, and it is the reference the trained models have to beat.  It is
+    taken from the last observed step, so it uses no information the models do
+    not also have.
     """
-    X_parts, y_parts = [], []
+    X_parts, y_parts, last_parts = [], [], []
     feats_all = df[feature_cols].to_numpy(np.float32)
     targ_all = df[target_col].to_numpy(np.int16)
     seg = df[segment_col].to_numpy()
@@ -156,11 +170,14 @@ def make_windows(
         yi = idx[:, None] + lookback_rows + np.arange(horizon_rows)[None, :]
         X_parts.append(f[xi])
         y_parts.append(t[yi])
+        last_parts.append(t[idx + lookback_rows - 1])
 
     if not X_parts:
         raise ValueError("No windows produced -- check lookback/horizon/stride.")
     X = np.concatenate(X_parts).astype(np.float32)
     y = np.concatenate(y_parts).astype(np.int16)
+    if return_last_state:
+        return X, y, np.concatenate(last_parts).astype(np.int16)
     return X, y
 
 
@@ -387,6 +404,7 @@ def main(
     machine=DEFAULT_MACHINE, models=None, seeds=1, decimate_factor=DECIMATE,
     lookback_s=LOOKBACK_S, horizon_s=HORIZON_S, stride_s=STRIDE_S,
     epochs=EPOCHS, batch_size=BATCH_SIZE, patience=PATIENCE,
+    append=False,
 ):
     from sklearn.utils.class_weight import compute_class_weight
     from experiments.baseline_models import MODEL_INFO
@@ -424,13 +442,14 @@ def main(
 
     W = {}
     for name, part in splits.items():
-        Xw, yw = make_windows(part.reset_index(drop=True), feature_cols,
-                              lb, hz, st)
-        W[name] = (Xw, yw)
+        Xw, yw, lw = make_windows(part.reset_index(drop=True), feature_cols,
+                                  lb, hz, st, return_last_state=True)
+        W[name] = (Xw, yw, lw)
         info(f"{name}: {len(Xw):,} windows, X{Xw.shape} "
              f"({Xw.nbytes/1e6:.0f} MB)")
 
-    (X_tr, y_tr), (X_va, y_va), (X_te, y_te) = W["train"], W["val"], W["test"]
+    (X_tr, y_tr, _), (X_va, y_va, _), (X_te, y_te, l_te) = (
+        W["train"], W["val"], W["test"])
     (X_tr, X_va, X_te), (mu, sd) = standardise(X_tr, X_va, X_te)
 
     # -- Shared class weights ----------------------------------------------
@@ -451,14 +470,31 @@ def main(
 
     # -- Run every model, every seed ---------------------------------------
     results: dict = {}
+    if append:
+        # Merge into whatever a previous run left, so that adding one model
+        # does not silently reduce the comparison table to that model.
+        prev_path = f"{out_dir}/task5_results.json"
+        if os.path.exists(prev_path):
+            with open(prev_path, encoding="utf-8") as fh:
+                results = json.load(fh).get("results", {})
+            info(f"appending to {len(results)} existing model result(s)")
+
     for key in models:
         name, citation = MODEL_INFO[key]
         per_seed = []
-        for seed in range(seeds):
+        n_seeds = 1 if key in DETERMINISTIC_MODELS else seeds
+        for seed in range(n_seeds):
             section(f"{name}  [{citation}]  seed {seed}")
             t0 = time.time()
             try:
-                if key == "xgboost":
+                if key == "persistence":
+                    # No training: the horizon repeats the last observed state.
+                    y_pred = np.repeat(l_te[:, None], y_te.shape[1],
+                                       axis=1).astype(np.int16)
+                    extra = {"n_params": 0, "train_seconds": 0.0,
+                             "inference_seconds_per_window_ms": 0.0,
+                             "note": "no fitted parameters; deterministic"}
+                elif key == "xgboost":
                     y_pred, extra = train_xgboost(
                         X_tr, y_tr, X_va, y_va, X_te, len(state_names),
                         class_weight, seed, out_dir)
@@ -505,9 +541,7 @@ def main(
     tbl = _dump_table(results, state_names, out_dir)
     print(tbl.to_string())
 
-    save_json({
-        "meta": meta,
-        "config": {
+    cfg = {
             "decimate": decimate_factor, "step_seconds": step_s,
             "lookback_s": lookback_s, "horizon_s": horizon_s,
             "stride_s": stride_s, "lookback_rows": lb, "horizon_rows": hz,
@@ -519,9 +553,30 @@ def main(
             "n_train_windows": int(len(X_tr)), "n_val_windows": int(len(X_va)),
             "n_test_windows": int(len(X_te)),
             "xgb_params": XGB_PARAMS, "xgb_subblocks": XGB_SUBBLOCKS,
-        },
-        "results": results,
-    }, f"{out_dir}/task5_results.json")
+    }
+    payload = {"meta": meta, "config": cfg, "results": results}
+    if append and os.path.exists(f"{out_dir}/task5_results.json"):
+        # An appended run must not overwrite the config the EARLIER models were
+        # trained under -- `epochs` and `seeds` differ per invocation, and
+        # silently restamping them would misdescribe results already in the
+        # file.  The original config is kept and this run's is recorded beside
+        # it, with the window geometry checked for compatibility.
+        with open(f"{out_dir}/task5_results.json", encoding="utf-8") as fh:
+            prev = json.load(fh)
+        prev_cfg = prev.get("config", {})
+        for k in ("decimate", "lookback_rows", "horizon_rows", "stride_rows",
+                  "n_test_windows"):
+            if k in prev_cfg and prev_cfg[k] != cfg.get(k):
+                raise ValueError(
+                    f"cannot append: {k} differs ({prev_cfg[k]} vs {cfg.get(k)}). "
+                    f"The appended model would be scored on different windows.")
+        appended = prev_cfg.get("appended_runs", [])
+        appended.append({"models": list(models), "seeds": seeds,
+                         "epochs": epochs})
+        prev_cfg["appended_runs"] = appended
+        payload = {"meta": prev.get("meta", meta), "config": prev_cfg,
+                   "results": results}
+    save_json(payload, f"{out_dir}/task5_results.json")
     section("TASK 5 COMPLETE")
     return results
 
@@ -555,6 +610,8 @@ if __name__ == "__main__":
     ap.add_argument("--machine", default=DEFAULT_MACHINE)
     ap.add_argument("--models", nargs="*", default=None, help=f"subset of {ALL_MODELS}")
     ap.add_argument("--seeds", type=int, default=1)
+    ap.add_argument("--append", action="store_true",
+                    help="merge into the existing results JSON instead of replacing it")
     ap.add_argument("--decimate", type=int, default=DECIMATE)
     ap.add_argument("--lookback-s", type=float, default=LOOKBACK_S)
     ap.add_argument("--horizon-s", type=float, default=HORIZON_S)
@@ -564,4 +621,4 @@ if __name__ == "__main__":
     ap.add_argument("--patience", type=int, default=PATIENCE)
     a = ap.parse_args()
     main(a.machine, a.models, a.seeds, a.decimate, a.lookback_s, a.horizon_s,
-         a.stride_s, a.epochs, a.batch_size, a.patience)
+         a.stride_s, a.epochs, a.batch_size, a.patience, append=a.append)

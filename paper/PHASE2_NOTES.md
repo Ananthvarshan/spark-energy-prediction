@@ -223,7 +223,56 @@ Two Phase I claims were contradicted by this evidence and have been rewritten:
 
 ## Task 5 — forecasting baselines
 
-*(filled in below once the run completes)*
+Six models under one protocol: 10× decimation (1 Hz → 0.1 Hz), 600 s lookback,
+300 s horizon, 120 s stride, chronological 70/15/15 split with windows built
+inside each split, identical balanced class weights, one seed each. Test set
+5,449 windows; mean true STANDBY 20.1 s of a 300 s horizon, and only 13.5% of
+windows contain any STANDBY at all.
+
+| model | accuracy | macro F1 | **F1 (STANDBY)** | STANDBY MAE (s) | RMSE (s) | params | train (s) |
+|---|---|---|---|---|---|---|---|
+| XGBoost (sliding window) | 0.933 | 0.753 | **0.685** | **11.63** | 42.99 | 236 trees | 250 |
+| **Persistence (no training)** | 0.921 | 0.734 | **0.682** | **12.95** | 49.42 | **0** | **0** |
+| GRU encoder-decoder | 0.910 | 0.731 | 0.661 | 13.70 | 49.96 | 121,604 | 502 |
+| Seq2Seq LSTM (proposed) | 0.894 | 0.719 | 0.660 | 13.76 | 48.82 | 161,028 | 774 |
+| Temporal CNN (TCN) | 0.905 | 0.720 | 0.644 | 15.03 | 54.46 | 131,332 | 524 |
+| Transformer (PatchTST) | 0.901 | 0.721 | 0.630 | 14.76 | 49.10 | 310,488 | 324 |
+| Vanilla LSTM | 0.895 | 0.714 | 0.621 | 15.60 | 50.34 | 93,816 | 385 |
+
+**The result that matters is the second row, and it was added in Phase V.** The
+original Task 5 compared six *trained* models against each other and never
+against not training at all. A persistence forecast — the horizon repeats the
+last observed state, no parameters, no fitting — reaches F1 0.682 and MAE
+12.95 s on these same windows. It beats every neural model in the table,
+including the proposed Seq2Seq LSTM (0.660 / 13.76 s), and is within 0.004 F1
+of XGBoost.
+
+Three things follow, and the paper must carry all three:
+
+1. **The sequence-forecasting contribution as originally framed does not
+   survive.** No neural architecture in this comparison earns its training cost
+   on this machine; the proposed model is 0.022 F1 *below* an untrained
+   reference while costing 774 s of training and 161k parameters.
+2. **The ranking among trained models is unaffected.** XGBoost > GRU ≈ Seq2Seq
+   LSTM > TCN > Transformer > vanilla LSTM stands as reported. What changes is
+   the baseline the whole column is read against.
+3. **Whether XGBoost's 0.004 F1 edge over persistence is real is a question for
+   Phase V**, not for this table — see `PHASE5_NOTES.md`, which tests it.
+
+The horizon is short (300 s) relative to state dwell times (median 71 s but
+heavy-tailed, with STANDBY runs lasting minutes to hours), so "nothing changes
+in the next five minutes" is right most of the time. That is not an artefact to
+be explained away: it is the operating regime, and a forecaster deployed here
+has to beat it.
+
+Reproduce the persistence row with:
+
+    python -m experiments.task5_forecasting_baselines --models persistence \
+        --decimate 10 --append
+
+`--append` merges into the existing results JSON and refuses to run if the
+window geometry differs from the stored configuration, so the appended row is
+guaranteed to have been scored on the same windows as the six original ones.
 
 ---
 
