@@ -559,6 +559,8 @@ def label_record(
     denoise: bool = True,
     with_bic_scan: bool = True,
     verbose: bool = True,
+    physics_score_threshold: float = 0.9,
+    max_refit_attempts: int = 3,
 ) -> tuple[pd.DataFrame, dict]:
     """
     Label an already-loaded record end to end and return (df, model_info).
@@ -572,7 +574,33 @@ def label_record(
     isolates the minimum-dwell constraint, which is the comparison Phase IV
     needs; the framewise-vs-Viterbi comparison was Phase II's job and is
     already reported there.
+
+    ACCEPT / REJECT LOOP (Phase V Task 12B finding)
+    ------------------------------------------------
+    Phase V Task 12B re-fitted the GMM-HMM at 10 different seeds on identical
+    preprocessed data and found that 3 of 10 seeds converge to a wrong cluster:
+    seeds 6, 8 and 9 produced "STANDBY" clusters at 12,961 W (absorbed a loaded
+    running state) and 0.8–1.1 W (the OFF state), respectively.  The physics
+    battery scored those seeds at 0.60–0.80 and the correct seeds at 1.00.
+
+    Conditioning on a physics-passing seed collapses the STANDBY-hour spread
+    from ±33.7% (all seeds) to ±3.0% (passing seeds).  The pipeline is therefore
+    reproducible BECAUSE OF the physics validation — not despite the clustering.
+
+    This loop makes that accept/reject step explicit and automatic rather than
+    relying on a post-hoc check: if the physics score falls below
+    `physics_score_threshold` (default 0.90), the model is refit with a
+    different seed, up to `max_refit_attempts` times.  The attempt count and
+    seed used are stored in `model_info` for transparency.
+
+    NOTE: All state-time totals produced by this function are to be quoted as
+    conditional on the physics battery passing (i.e., physics_score ≥ 0.90) and
+    rounded to 2 significant figures, because the block-bootstrap sampling
+    uncertainty (Phase V Task 11C) is ±15–25% and the labelling uncertainty
+    conditional on passing is ±3%.
     """
+    from experiments.common import physics_compliance  # noqa: E402 (lazy import)
+
     info: dict = {}
     df, dt = add_segments(df)
     info["sample_interval_s"] = dt
@@ -596,12 +624,55 @@ def label_record(
         sub = rng.choice(len(X), size=min(len(X), 100_000), replace=False)
         info["bic_scan"] = bic_scan(X[sub].astype(np.float64), seed=seed)
 
-    model, gmm = fit_state_model(X, bounds, dt, k=k, seed=seed, verbose=verbose)
-    min_rows = max(1, int(round(min_dwell_s / dt)))
-    raw, smooth = decode(model, X, bounds, min_rows, verbose=verbose)
+    # ── Accept / reject loop ──────────────────────────────────────────────────
+    # Phase V Task 12B: 3/10 seeds converge to wrong cluster; physics score
+    # reliably distinguishes them (0.60–0.80 vs 1.00).  Refit until passing.
+    attempt_seed = seed
+    for attempt in range(max_refit_attempts):
+        model, gmm = fit_state_model(X, bounds, dt, k=k, seed=attempt_seed,
+                                     verbose=verbose)
+        min_rows = max(1, int(round(min_dwell_s / dt)))
+        raw, smooth = decode(model, X, bounds, min_rows, verbose=verbose)
 
-    power = df["active_power"].to_numpy(np.float64)
-    mapping = map_labels_to_states(smooth, power, k=k)
+        power = df["active_power"].to_numpy(np.float64)
+        mapping = map_labels_to_states(smooth, power, k=k)
+        states_arr = np.array([mapping[int(c)] for c in smooth], dtype=object)
+
+        # Quick physics check on a strided sample (max 2M rows for speed).
+        stride = max(1, len(df) // 2_000_000)
+        idx_sample = np.arange(0, len(df), stride)
+        sub_df = df.iloc[idx_sample].reset_index(drop=True)
+        try:
+            phys = physics_compliance(sub_df, np.arange(len(sub_df)),
+                                      states_arr[idx_sample])
+            physics_score = phys["score"]
+        except Exception:
+            physics_score = 0.0  # treat errors as failing
+
+        if verbose:
+            _info(f"attempt {attempt + 1} (seed {attempt_seed}): "
+                  f"physics score {physics_score:.2f} "
+                  f"({'PASS' if physics_score >= physics_score_threshold else 'FAIL — refitting'})")
+
+        if physics_score >= physics_score_threshold:
+            info["physics_validation_attempts"] = attempt + 1
+            info["physics_validation_seed"] = attempt_seed
+            info["physics_score"] = physics_score
+            break
+        # Try a deterministically different seed: rotate by a large prime.
+        attempt_seed = (attempt_seed + 7919) % (2 ** 31 - 1)
+    else:
+        # All attempts failed — use the last result and flag it.
+        _info(f"WARNING: physics score {physics_score:.2f} below threshold "
+              f"{physics_score_threshold} after {max_refit_attempts} attempts. "
+              f"Using last result (seed {attempt_seed}). State-time totals "
+              f"from this run should be treated as unreliable.")
+        info["physics_validation_attempts"] = max_refit_attempts
+        info["physics_validation_seed"] = attempt_seed
+        info["physics_score"] = physics_score
+        info["physics_validation_failed"] = True
+    # ── End accept / reject loop ──────────────────────────────────────────────
+
     df["state_raw"] = pd.Categorical([mapping[int(c)] for c in raw],
                                      categories=STATE_ORDER[:k])
     df["state"] = pd.Categorical([mapping[int(c)] for c in smooth],

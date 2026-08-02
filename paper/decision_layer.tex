@@ -289,17 +289,22 @@ unconstrained. Re-deriving the same table from labels carrying the
 minimum-dwell constraint of Section~\ref{sec:flicker}---the same
 machine, the same policy, the same coefficients, and a test window cut
 at the same instant---changes the S2 column materially: the attainable
-head-room falls from $71.4$ to $42.9$\,USD/yr and the proposed policy
-from $+40.9$\,USD/yr ($57.3\%$ of the oracle) to $+7.2$\,USD/yr
-($16.8\%$). The physical quantities are unmoved (idle $474.9$ vs
-$474.1$\,h; energised idle $86.8$ vs $87.8$\,h; standby power $3\,747$
-vs $4\,208$\,W); what moves is the \emph{partition of idle time into
-episodes}, which is the unit the decision layer bids on: enforcing a
-minimum dwell merges $3\,224$ episodes into $1\,312$ and raises the
-median episode from $12$ to $90$\,s. Sub-ten-second ``opportunities''
-created by label flicker are not shutdown opportunities, so the smaller
-figure is the defensible one, and both are reported here rather than
-the more favourable one alone.
+head-room falls from $71$\,USD/yr to $38$\,USD/yr and the proposed
+policy from $+41$\,USD/yr ($57\%$ of the oracle) to
+$+2.9 \pm 0.6$\,USD/yr ($7.8 \pm 1.6\%$; mean and standard deviation
+over ten random seeds from Phase~V Task~12C). The physical quantities
+are unmoved (idle $474.9$ vs $474.1$\,h; energised idle $86.8$ vs
+$87.8$\,h; standby power $3\,747$ vs $4\,208$\,W); what moves is the
+\emph{partition of idle time into episodes}, which is the unit the
+decision layer bids on: enforcing a minimum dwell merges $3\,224$
+episodes into $1\,312$ and raises the median episode from $12$ to
+$90$\,s. Sub-ten-second ``opportunities'' created by label flicker are
+not shutdown opportunities, so the smaller figure is the defensible
+one, and both are reported here rather than the more favourable one
+alone. The seed-to-seed standard deviation ($0.6$\,USD/yr) is small
+relative to the bootstrap sampling interval ($\pm 50$\,USD/yr over
+18 factory days; Phase~V Task~11B), confirming that model-fitting
+variance does not explain the uncertainty.
 
 The proposed policy captures $55$--$76\%$ of the attainable head-room in
 S2 and S3 and beats the forecast-free ski-rental rule in all three
@@ -345,13 +350,14 @@ where restarts are expensive.
 
 \paragraph{Payback.}
 At the measured coefficients and $D^{\star}=1$\,h the policy saves
-$38.6$\,USD/yr per machine on the labels of
-Table~\ref{tab:decision:policies} and $7.2$\,USD/yr under the
+$39$\,USD/yr per machine on the unconstrained labels of
+Table~\ref{tab:decision:policies} and $2.9 \pm 0.6$\,USD/yr
+(mean $\pm$ sd over ten seeds; Phase~V Task~12C) under the
 minimum-dwell labelling, so a $5\,000$\,USD retrofit would pay back in
 $130$ years on the first figure and not at all on the second, and a
 three-year payback demands a per-machine cost below $116$\,USD in the
 most favourable of the two. This follows directly from the plant already de-energising
-for the long gaps: only $86.8$\,h of energised idle remain over $63$ days
+for the long gaps: only $87$\,h of energised idle remain over $63$ days
 of record, some $325$\,kWh. On pelletizer-I the framework's value is
 therefore in decision quality --- it captures most of the attainable
 head-room while avoiding the $20$ constraint-violating shutdowns the

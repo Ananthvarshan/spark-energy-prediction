@@ -1,0 +1,107 @@
+% =====================================================================
+%  method_gmm_labeller.tex  --  PHASE V CORRECTION 4 & 5
+%
+%  Drop-in description of the GMM-HMM labelling procedure, including
+%  the accept/reject step that Phase V Task 12B showed is load-bearing
+%  for reproducibility.  Insert into Section 3 (Method).
+%
+%  Numbers: all STANDBY-time totals are rounded to 2 significant
+%  figures and stated as conditional on the physics battery passing,
+%  per Phase V Task 11C (block-bootstrap CI ±15–25%) and
+%  Task 12B (labelling CV 33.7% unconditional, 3.0% conditional).
+% =====================================================================
+
+\subsection{Machine-state inference}
+\label{sec:method:labelling}
+
+\subsubsection{Preprocessing}
+\label{sec:method:preprocess}
+
+Each machine's $1$\,Hz electrical record is preprocessed in three
+deterministic steps, applied identically to every machine so that
+differences in downstream results are attributable to the machines,
+not to the preprocessing.
+
+\begin{enumerate}
+\item \emph{Spike masking.}  For each channel, rolling-MAD outliers
+  (window $11$, threshold $5\times$MAD) are flagged and excluded
+  from model fitting but retained in the record; removing them would
+  destroy the row-count-to-seconds correspondence that episode
+  durations depend on.
+
+\item \emph{OFF-state denoising.}  Rows with active power below
+  $5$\,W are smoothed with a rolling median (window $5$) to suppress
+  sensor noise in the de-energised state without touching on-state
+  dynamics.
+
+\item \emph{Feature standardisation.}  Six electrical channels are
+  log$_1$p-transformed (right-skewed channels: $P, Q, S, I$) and
+  z-scored jointly before any model fitting.
+\end{enumerate}
+
+\subsubsection{Gaussian hidden Markov model}
+\label{sec:method:ghmm}
+
+Emission distributions are estimated by a Gaussian mixture model
+(GMM, full covariance, $k = 4$ components) fitted on a uniform
+random sample of $200{,}000$ rows.  A Gaussian HMM is then
+warm-started from these emissions with $\texttt{params}=\texttt{``t''}$,
+so only the transition matrix is learned from $64$ contiguous
+two-hour blocks spread across the record; this decouples emission
+shape (a property of the marginal distribution) from transition
+dynamics (a property of the sequence) and avoids the local optima
+that Baum--Welch finds when initialised randomly on this
+dataset~\cite{fox2011sticky}.  Viterbi decoding is applied per
+contiguous segment to prevent the decoder from asserting a transition
+across an acquisition gap.  A minimum-dwell constraint of $10$\,s
+is applied post-decode to remove label flicker without reshaping
+the partition (Section~\ref{sec:results:task4}).
+
+\subsubsection{Physics-validation accept/reject loop}
+\label{sec:method:accept_reject}
+
+\emph{This step is load-bearing for reproducibility and was not
+explicit in the Phase I--IV description; it is stated here as a
+result of Phase~V Task~12B.}
+
+After decoding, a battery of ten physics tests (T1--T10:
+power-factor separation, no-load current ratio, power conservation,
+dwell plausibility, cross-machine replication, and factory-schedule
+agreement) is run on a strided sample of the labelled record and
+aggregated into a physics score $s \in [0, 1]$.  If $s < 0.90$,
+the model is re-fitted with a different seed (incremented by a
+fixed prime) and the battery is re-evaluated, up to three attempts.
+
+The motivation is empirical.  Phase~V Task~12B fitted the labeller at
+ten different seeds on identical preprocessed data from pelletizer~I
+and found that three seeds (30\%) converge to a wrong cluster:
+
+\begin{itemize}
+\item seed~6: the ``STANDBY'' cluster absorbed a loaded running state
+  (mean power $12{,}961$\,W instead of the correct $\sim3{,}750$\,W);
+\item seeds~8 and~9: the ``STANDBY'' cluster absorbed the OFF state
+  (mean power $0.8$--$1.1$\,W).
+\end{itemize}
+
+The physics battery scored those three seeds at $0.60$--$0.80$ and the
+seven correct seeds at $1.00$, making the accept/reject decision exact
+on this record.  Conditioning on a passing seed collapses the
+STANDBY-hour coefficient of variation from $33.7\%$ (all ten seeds)
+to $3.0\%$ (passing seeds), and the total reported throughout this
+paper---$92 \pm 3$\,h over the 155-day record---is the mean of the
+seven passing seeds.
+
+\emph{All STANDBY-time totals in this paper are therefore stated as
+conditional on the physics battery passing} (i.e., $s \ge 0.90$)
+\emph{and are rounded to two significant figures}, because the
+block-bootstrap sampling uncertainty (Phase~V Task~11C, one-week
+blocks) is $\pm 15$--$25\%$ and the conditional labelling
+uncertainty is $\pm 3\%$.  Three significant figures are not
+supported by the data.
+
+The accept/reject loop is implemented in \texttt{src/labelling.py}
+(\texttt{label\_record}, \texttt{physics\_score\_threshold}=0.90,
+\texttt{max\_refit\_attempts}=3) and its output is stored in the
+model-info dictionary (\texttt{physics\_validation\_attempts},
+\texttt{physics\_validation\_seed}, \texttt{physics\_score}) for
+audit and reproduction.
