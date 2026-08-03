@@ -708,3 +708,52 @@
   doi     = {10.1198/jasa.2011.r10138}
 }                        % elicitability: which functional a loss function
                          % targets -- the mean-vs-median estimand argument
+
+% ---------------------------------------------------------------------
+%  ADDED IN PHASE VII (final assembly) -- multiplicity control and
+%  dependent-data resampling, used in Section~\ref{sec:significance}.
+% ---------------------------------------------------------------------
+
+@article{holm1979simple,
+  author  = {Holm, Sture},
+  title   = {A Simple Sequentially Rejective Multiple Test Procedure},
+  journal = {Scandinavian Journal of Statistics},
+  volume  = {6},
+  number  = {2},
+  pages   = {65--70},
+  year    = {1979}
+}                        % step-down FWER control; uniformly more powerful
+                         % than Bonferroni at the same guarantee
+
+@article{benjamini1995controlling,
+  author  = {Benjamini, Yoav and Hochberg, Yosef},
+  title   = {Controlling the False Discovery Rate: A Practical and Powerful
+             Approach to Multiple Testing},
+  journal = {Journal of the Royal Statistical Society, Series B},
+  volume  = {57},
+  number  = {1},
+  pages   = {289--300},
+  year    = {1995},
+  doi     = {10.1111/j.2517-6161.1995.tb02031.x}
+}                        % reported beside Holm for the exploratory families
+
+@article{kunsch1989jackknife,
+  author  = {K{\"u}nsch, Hans R.},
+  title   = {The Jackknife and the Bootstrap for General Stationary
+             Observations},
+  journal = {The Annals of Statistics},
+  volume  = {17},
+  number  = {3},
+  pages   = {1217--1241},
+  year    = {1989},
+  doi     = {10.1214/aos/1176347265}
+}                        % moving-block bootstrap; the state-time intervals
+                         % resample one-week blocks, not rows
+
+@book{efron1993bootstrap,
+  author    = {Efron, Bradley and Tibshirani, Robert J.},
+  title     = {An Introduction to the Bootstrap},
+  publisher = {Chapman \& Hall},
+  address   = {New York},
+  year      = {1993}
+}

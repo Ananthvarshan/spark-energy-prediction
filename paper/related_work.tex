@@ -74,6 +74,23 @@ conventionally selected by the Bayesian information criterion
 \cite{schwarz1978bic} or by silhouette analysis
 \cite{rousseeuw1987silhouettes}.
 
+Neither criterion selects a state count on records of the size
+considered here, and this is worth stating because it determines the
+design of the method proposed below. The BIC penalty grows as
+$\tfrac{1}{2}p\log n$ while the likelihood gained by splitting a
+non-Gaussian component grows linearly in $n$, so at $n>10^{6}$ samples
+per machine the penalty is negligible and a mixture model keeps buying
+components in order to approximate a distribution that is not a mixture
+of $k$ Gaussians for any $k$. Scanning $k\in[2,8]$ over the eight
+machines of Section~\ref{sec:multimachine}, BIC is still falling at the
+boundary on seven of them, and the improvement from $k=4$ to $k=8$ is
+$3.1$--$33.1\%$ of the criterion's own value. Silhouette behaves
+similarly. Statistical order selection must therefore be supplemented
+by an external, physical admissibility criterion rather than merely
+confirmed by one --- which is the role of the validation battery of
+Section~\ref{sec:method:accept_reject}, and the reason it is part of
+the method here rather than an appendix to it.
+
 \subsubsection{Temporal structure}
 A limitation common to all of the above is that they treat samples as
 independent and identically distributed. Applied to a 1\,Hz electrical
@@ -149,8 +166,9 @@ performance, attributing it to precisely these differences. Martins
 \textit{et al.} \cite{martins2018imdeld} apply a deep generative model
 to industrial disaggregation and, in doing so, release the IMDELD
 dataset \cite{imdeld2018dataset}---eleven meters recording eight heavy
-machines in a Brazilian poultry-feed pellet plant at 1\,Hz for
-approximately 111 days. IMDELD is the benchmark used throughout this
+machines in a Brazilian poultry-feed pellet plant at 1\,Hz across a
+five-month window, of which the covered fraction differs by machine
+(Section~\ref{sec:method:data}). IMDELD is the benchmark used throughout this
 paper; its authors characterise the machines as three-state systems but
 supply no per-timestamp state annotation, which is the reason the
 present work must proceed without labels and validate its partition
@@ -301,7 +319,7 @@ Chen \textit{et al.} \cite{chen2013schedule} & schedule-based control  & simulat
 Frigerio \& Matta \cite{frigerio2015energy} & stochastic control policy & analytical model  & --  & \CIRCLE    & \LEFTcircle\tnote{b} & \CIRCLE & \Circle \\
 He \textit{et al.} \cite{he2015energy} & energy-responsive scheduling & job-shop model      & --  & \Circle    & \Circle & \CIRCLE & \Circle \\
 \midrule
-\textbf{This work}                   & \textbf{GMM--HMM $\rightarrow$ Seq2Seq LSTM $\rightarrow$ optimisation} & \textbf{IMDELD (industrial)} & \textbf{no} & \CIRCLE & \CIRCLE & \CIRCLE & \CIRCLE \\
+\textbf{This work}                   & \textbf{physics-gated GMM--HMM $\rightarrow$ duration forecast $\rightarrow$ optimisation} & \textbf{IMDELD (industrial)} & \textbf{no} & \CIRCLE & \CIRCLE & \CIRCLE & \CIRCLE \\
 \bottomrule
 \end{tabular}
 \begin{tablenotes}[flushleft]\footnotesize

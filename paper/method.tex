@@ -1,0 +1,106 @@
+% =====================================================================
+%  method.tex  --  PHASE VII, Task 14C
+%
+%  Section 3.  The framework overview, the data, and the two forecasting
+%  formulations.  The state-inference subsection lives in its own file
+%  and is pulled in here.
+%
+%  Intended placement: Section 3 (\label{sec:method}), after related
+%  work.
+%
+%  Drop-in usage: \input{method}
+%  This file \inputs method_gmm_labeller.tex.
+%  Bibliography: paper/references.bib
+% =====================================================================
+
+\section{Proposed Framework}
+\label{sec:method}
+
+\subsection{Overview}
+\label{sec:method:overview}
+
+The framework is a three-stage pipeline over a single input: the
+per-phase voltage and current a standard retrofit meter already
+records. Each stage is specified by what the next one needs.
+
+\begin{enumerate}
+\item \emph{State inference} (Section~\ref{sec:method:labelling}) maps
+  the electrical record to a label per sample from
+  $\{$OFF, STANDBY, WORKING, PEAK\_LOAD$\}$ without annotations, and is
+  required to produce a sequence whose state durations are physically
+  admissible --- not merely a per-sample partition --- because duration
+  forecasting over a flickering label sequence is ill-posed.
+\item \emph{Duration forecasting} (Sections~\ref{sec:forecasting}
+  and~\ref{sec:decision:policies}) predicts how much longer the machine
+  will remain non-productive, and is required to target the conditional
+  \emph{mean} of that duration, because the decision rule below is
+  affine in it.
+\item \emph{Decision} (Section~\ref{sec:decision}) converts the forecast
+  into a de-energise/keep-running action by minimising total cost
+  subject to thermal and wear constraints, and returns the break-even
+  duration as a derived quantity rather than consuming it as a
+  parameter.
+\end{enumerate}
+
+The stages are separable in implementation and are evaluated separately
+throughout, which is what makes the component ablation of
+Section~\ref{sec:ablation} meaningful.
+
+\subsection{Data}
+\label{sec:method:data}
+
+IMDELD~\cite{imdeld2018dataset,martins2018imdeld} publishes $1$\,Hz
+three-phase measurements from eight machines of a Brazilian
+poultry-feed pellet plant: two pelletizers, two milling machines, two
+exhaust fans and two double-pole contactors. Six channels are used ---
+active, reactive and apparent power, current, voltage and power factor
+--- and no other information about the machines enters the models. The
+plant's published calendar (weekday operation, a halt between 17:00 and
+22:00 local time to avoid the peak tariff, and no weekend production)
+is used \emph{only} as external validation evidence, never as a model
+input to the state layer.
+
+Coverage differs sharply by machine and is reported as measured rather
+than as published. The pelletizer~I record spans $155$ days from
+2017-10-30 to 2018-04-03 and contains $63.4$ days of data in $74$
+contiguous segments; $31$ acquisition gaps account for the remainder,
+the largest of them $30$ days. The two milling machines cover $12.2$ of
+$43$ days in $1\,082$ and $580$ fragments. \textbf{Every annualised
+quantity in this paper is scaled by covered time, not by span}, which
+matters by a factor of $2.4$ on the five-month records and is the
+reason the milling machines' figures are not annualised at all
+(Section~\ref{sec:limitations:milling}).
+
+\input{method_gmm_labeller}
+
+\subsection{Two forecasting problems, not one}
+\label{sec:method:forecasting}
+
+The framework contains two forecasters. They are frequently conflated,
+they consume different features, and no result in this paper reports
+them in the same column.
+
+\emph{The window state forecaster} takes a $600$\,s lookback of the
+electrical record and predicts the state at each step of a $300$\,s
+horizon. It is a sequence problem, it is what the baseline comparison of
+Section~\ref{sec:forecasting} evaluates, and it is scored on windows.
+Its design representation summarises each channel over the lookback ---
+final observed value, sub-block means and standard deviations --- giving
+$217$ columns for the tree, or the raw sequence for the neural
+architectures.
+
+\emph{The episode-duration forecaster} takes the state of an idle
+episode at a decision epoch and predicts the \emph{remaining} idle time
+$R$ in seconds. It is a regression problem, it is what the decision
+layer of Section~\ref{sec:decision} consumes, and it is scored per
+decision epoch. Its ten features are elapsed idle time, the current
+position in the factory calendar, and the load history of the
+production run that just ended.
+
+Keeping them apart is not pedantry. Section~\ref{sec:explain} shows they
+draw on almost disjoint information --- $11.6\%$ of the window model's
+attribution is calendar against $82.4\%$ of the duration model's --- and
+Section~\ref{sec:crossmachine} shows that one transfers between machines
+and the other does not, for exactly that reason. Attributing the
+economic result to the window model's $F_1$ would credit a model that
+plays no part in producing it.

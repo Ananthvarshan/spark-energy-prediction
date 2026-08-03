@@ -57,6 +57,18 @@ across an acquisition gap.  A minimum-dwell constraint of $10$\,s
 is applied post-decode to remove label flicker without reshaping
 the partition (Section~\ref{sec:results:task4}).
 
+The dwell operator absorbs any run shorter than the floor into its
+neighbours.  It is described above as removing runs, and one
+consequence of that description deserves to be stated because it is
+not obvious: absorbing an intermediate run can leave two states
+\emph{adjacent} that the decoder never placed side by side, so the
+operator can create a transition as well as delete one.  On
+pelletizer~I it introduces three PEAK\_LOAD\,$\rightarrow$\,OFF
+transitions --- $5\times10^{-7}$ of a $5.47$-million-row record, which
+changes no quantity reported in this paper, but a property of the
+operator rather than of the machine
+(Section~\ref{sec:explain:transitions}).
+
 \subsubsection{Physics-validation accept/reject loop}
 \label{sec:method:accept_reject}
 
@@ -64,13 +76,42 @@ the partition (Section~\ref{sec:results:task4}).
 explicit in the Phase I--IV description; it is stated here as a
 result of Phase~V Task~12B.}
 
-After decoding, a battery of ten physics tests (T1--T10:
-power-factor separation, no-load current ratio, power conservation,
-dwell plausibility, cross-machine replication, and factory-schedule
-agreement) is run on a strided sample of the labelled record and
-aggregated into a physics score $s \in [0, 1]$.  If $s < 0.90$,
-the model is re-fitted with a different seed (incremented by a
-fixed prime) and the battery is re-evaluated, up to three attempts.
+After decoding, five independent physical checks are run on a
+strided sample of the labelled record and aggregated into a physics
+score $s\in[0,1]$, the fraction passed:
+
+\begin{center}
+\small
+\begin{tabular}{@{}lll@{}}
+\toprule
+ & check & criterion \\
+\midrule
+C1 & power ordering       & $\bar{P}$ strictly increasing over the state order \\
+C2 & OFF is truly off     & $\bar{P}(\text{OFF}) < P_{\text{off,max}}$ \\
+C3 & PF separation        & $\mathrm{PF}(\text{prod.}) - \mathrm{PF}(\text{STANDBY}) \ge 0.40$ \\
+C4 & no-load current      & $I(\text{STANDBY})/I(\text{prod.}) \in [0.25,0.50]$ \\
+C5 & variance ordering    & $\sigma_P(\text{OFF}) < \sigma_P(\text{STANDBY}) < \sigma_P(\text{prod.})$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\textbf{C3 and C4 are the load-bearing pair}, because they are the
+only two that do not depend on power magnitude at all and are
+therefore the only two that test whether STANDBY has been separated
+from a \emph{lightly loaded} WORKING state rather than merely from a
+lower-power one.  C3's threshold and C4's band are the standard
+no-load figures for industrial induction
+motors, and neither is tuned to this dataset.  If
+$s < 0.90$ --- i.e.\ if any check fails --- the model is re-fitted
+with a different seed (incremented by a fixed prime) and the checks
+are re-evaluated, up to three attempts.
+
+This five-check battery is what gates the fit.  It is distinct from,
+and a strict subset of the concerns of, the ten-test validation
+harness of Section~\ref{sec:validation} (T1--T10), which additionally
+examines convergence, model order, assignment confidence, component
+weights, and agreement with the factory schedule, and which is
+reported per machine rather than consulted at fit time.
 
 The motivation is empirical.  Phase~V Task~12B fitted the labeller at
 ten different seeds on identical preprocessed data from pelletizer~I

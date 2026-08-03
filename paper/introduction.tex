@@ -1,0 +1,236 @@
+% =====================================================================
+%  introduction.tex  --  PHASE VII, Task 14E
+%
+%  Section 1.  Context and problem, the positioning statement, the
+%  contribution list, and the organisation paragraph.
+%
+%  Supersedes the corresponding blocks of novelty_and_contributions.tex
+%  (Phase I), which recorded the design rationale for the reframing and
+%  is retained for that purpose only.  Changes from the Phase I text:
+%
+%   * component (ii) is a duration forecaster benchmarked against an
+%     untrained reference, not "a Seq2Seq LSTM" -- Phase V;
+%   * the accept/reject loop is promoted to a named contribution
+%     -- Phase V Task 12B;
+%   * the decision contribution claims the paired contrast against the
+%     static rule, not a saving against the status quo -- Phase V 11B;
+%   * the sustainability/deployment forward references are removed;
+%     those analyses are not in this paper.
+%
+%  Drop-in usage: \input{introduction}
+%  Bibliography: paper/references.bib
+% =====================================================================
+
+\section{Introduction}
+\label{sec:intro}
+
+Electric motor systems account for the largest single share of
+industrial electricity use, and a substantial part of that share is
+drawn while the machine is energised but producing nothing. An induction
+motor left running between production runs continues to draw magnetising
+current: real power falls to a fraction of its loaded value, but it does
+not fall to zero, and the machine's power factor collapses. ISO~14955-1
+\cite{iso14955} names this operating mode --- ready for production,
+performing no value-adding function --- and studies of discrete-part
+manufacturing find that such load-independent consumption frequently
+exceeds the energy actually delivered to the workpiece
+\cite{gutowski2006electrical,dahmus2004environmental}. Eliminating it
+requires no capital equipment and no process change. It requires only
+knowing when a machine is idle, and for how long it will remain so.
+
+Neither is known in an existing facility. Three difficulties compound.
+
+\textbf{There are no labels.} A per-timestamp record of which state each
+machine occupied would reduce state identification to a standard
+classification problem, but obtaining one means instrumenting every
+machine's contactor and control system, or having an operator observe
+each machine for months. Neither is affordable at facility scale and
+neither transfers to a new machine without repeating the effort. Public
+industrial benchmarks reflect this: IMDELD
+\cite{martins2018imdeld,imdeld2018dataset}, the benchmark used
+throughout this paper, publishes $1$\,Hz electrical measurements from
+eight heavy machines and no state annotation at all. Any method that
+must be validated against ground truth is therefore inapplicable, and
+so is any evaluation metric that assumes it.
+
+\textbf{The duration is unknown when the decision must be made.} The
+shutdown trade-off is well understood: de-energising saves standby power
+but incurs a restart cost, so it pays only when the idle interval
+exceeds a break-even duration \cite{mouzon2007operational}. The
+operations-research literature solves the resulting scheduling problem
+in considerable depth --- and universally assumes the idle interval is
+given, either by a deterministic production schedule or by an
+analyst-calibrated arrival process. In a retrofit installation the only
+available signal is the machine's own measured electrical behaviour, and
+nothing in that literature converts one into the other.
+
+\textbf{The two capabilities have matured separately and remain
+unconnected.} Non-intrusive load monitoring can infer what a machine is
+doing from its electrical signature \cite{hart1992nonintrusive}, but its
+objective is retrospective attribution: it does not forecast and it does
+not act. Energy-aware scheduling can act optimally given a duration it
+cannot obtain. \emph{The former produces labels no controller consumes;
+the latter consumes durations no inference procedure supplies.}
+Section~\ref{sec:related} develops this gap across four bodies of
+literature and states it precisely.
+
+\medskip
+\noindent
+To close it we propose a \emph{unified data-driven framework for
+industrial standby energy elimination}. Rather than treating state
+inference, forecasting and control as separate problems, the framework
+treats them as one pipeline whose stages are designed against each
+other's requirements: the inference stage is constrained to produce a
+temporally coherent sequence because duration forecasting is otherwise
+ill-posed, and the forecasting stage is constrained to predict a
+duration rather than a class because the decision stage consumes a
+duration. The framework has three components.
+
+\begin{enumerate}
+  \item \textbf{Physics-gated unsupervised state inference.} A Gaussian
+  hidden Markov model \cite{rabiner1989tutorial} estimates the emission
+  distributions and transition dynamics of the machine's operating
+  states directly from electrical measurements, requiring no
+  annotation, and an explicit minimum-dwell constraint enforces
+  physically admissible state durations at decode time. Because no
+  ground-truth labels exist against which the partition could be
+  scored, the fit is then \emph{accepted or rejected} against checks
+  drawn from sources external to the model: induction-motor
+  power-factor and no-load current physics, variance and power
+  ordering, agreement with independently derived threshold classifiers,
+  and the plant's published shift calendar.
+
+  \item \textbf{Non-productive duration forecasting.} The recent
+  inferred-state history is mapped to the duration of the upcoming
+  non-productive interval. Predicting duration rather than the next
+  state label is what makes the output actionable, since the break-even
+  criterion is a statement about how long a machine will remain idle.
+  Six trained forecasters --- recurrent, convolutional, transformer and
+  tree-based --- are compared under a common protocol \emph{and against
+  an untrained persistence reference}, which is the comparison that
+  determines whether the stage earns its place at all.
+
+  \item \textbf{Optimisation-based shutdown decision support.} The
+  decision is posed as minimisation of total cost --- standby energy,
+  restart, and production delay --- subject to thermal cool-down and
+  restart-frequency constraints, in the spirit of
+  \cite{mouzon2007operational} but with the idle duration supplied by
+  component~(ii) instead of by a known schedule. The break-even
+  duration is therefore a \emph{derived} quantity of the optimisation
+  rather than an operator-supplied threshold, and because the duration
+  is unknown at decision time the policy is benchmarked against the
+  $2$-competitive forecast-free rent-or-buy rule
+  \cite{karlin1994competitive} rather than against trivial policies.
+\end{enumerate}
+
+\medskip
+\noindent
+\textbf{Scope of the claim.} We claim no novelty in the Gaussian hidden
+Markov model, in any of the forecasting architectures, or in the
+break-even criterion, each of which is established. The contribution is
+the framework that connects them --- specifically, the demonstration
+that label-free state inference can be made trustworthy enough, and
+temporally coherent enough, to serve as the input to an economic control
+decision on real industrial data --- together with an evaluation
+honest enough to identify which of its own components do not earn their
+place.
+
+\subsection*{Contributions}
+
+\begin{itemize}
+  \item \textbf{A physics accept/reject loop, and the measurement that
+  shows it is load-bearing.} Fitting the labeller at ten seeds on
+  identical preprocessed data moves the headline standby total by a
+  coefficient of variation of $33.7\%$, and in three seeds of ten the
+  cluster named \textsc{standby} is physically a different state
+  --- once a loaded running state at $13$\,kW, twice the machine
+  switched off at under $1$\,W. The physics battery scores exactly those
+  three below threshold, and conditioning on a passing score collapses
+  the spread to $3.0\%$. \emph{The pipeline is reproducible because of
+  the physics validation, not despite the clustering}
+  (Sections~\ref{sec:method:accept_reject},
+  \ref{sec:significance:seeds}).
+
+  \item \textbf{An account of what temporal coherence actually
+  requires.} Viterbi decoding over a learned transition matrix reduces
+  flicker substantially but --- contrary to the usual assumption ---
+  cannot eliminate it, and neither can strengthening the transition
+  prior. The penalty a transition matrix can impose on a state change is
+  bounded by $\log(p_{\text{self}}/p_{\text{switch}})$, measured here at
+  $9.23$ nats, whereas full-covariance Gaussian emissions fitted to
+  low-noise electrical data differ by a median of $27.8$ nats and a
+  $90$th percentile of $41\,701$ nats between adjacent states. At
+  $55.7\%$ of timesteps the emission term is arithmetically unable to be
+  overruled. We show the remedy is an explicit minimum-dwell constraint,
+  that it removes flicker entirely at a cost of $0.19\%$ of rows, and
+  that it does so on all eight machines
+  (Sections~\ref{sec:flicker}, \ref{sec:multimachine:general}).
+
+  \item \textbf{A validation methodology for state partitions in the
+  absence of ground truth.} Circuit-level physics, model-level
+  diagnostics, and independently derived Otsu-thresholded classifiers
+  \cite{otsu1979threshold} are combined by consensus
+  \cite{strehl2002cluster}, none of them using the model's own internal
+  statistics. Applied across eight machines the battery accepts the four
+  motor-driven ones and rejects the four auxiliary ones, on which there
+  is no energised-idle state to find --- which is the behaviour that
+  makes it a validation procedure rather than a formality
+  (Sections~\ref{sec:validation}, \ref{sec:multimachine:states}).
+
+  \item \textbf{A forecasting comparison anchored on not forecasting,
+  and a negative result reported as such.} Under one protocol with
+  seeds, an untrained persistence reference beats all five neural
+  sequence models, the originally proposed sequence-to-sequence LSTM by
+  the largest margin of the seven ($7.95$\,s of per-window MAE,
+  $p=5.7\times10^{-44}$). A gradient-boosted tree is the only trained
+  forecaster that clears the reference, and it is the forecasting
+  component of the framework as reported here
+  (Sections~\ref{sec:forecasting}, \ref{sec:significance:forecast}).
+
+  \item \textbf{A decision layer in which the break-even duration is
+  derived, with an invariance result and a competitive benchmark.} We
+  replace the fixed-threshold rule with a constrained cost
+  minimisation, show that the reduced problem admits an exact offline
+  optimum, and measure the restart coefficients from the record instead
+  of assuming them --- finding the studied machine has no measurable
+  electrical restart penalty, so its restart cost is a production-delay
+  cost. We show analytically and numerically that the break-even
+  duration is \emph{independent of electricity tariff} whenever the
+  restart cost is purely electrical, and report the decision surface
+  over the axes that do carry information. The policy beats the fixed
+  threshold it replaces by $+68.9$\,USD/yr ($p=0.001$); it is not shown
+  to beat the plant's own behaviour, and we say so
+  (Sections~\ref{sec:decision}, \ref{sec:significance:decision}).
+
+  \item \textbf{End-to-end evaluation with ablation, significance
+  testing and transfer.} Every stage is evaluated across eight machines
+  and two sites, each component's marginal contribution is priced by
+  ablation, every headline difference carries a dependence-aware
+  interval and a pre-registered practical threshold, and the two designs
+  that cannot detect anything are identified as such rather than
+  reported as null results (Sections~\ref{sec:multimachine}--\ref{sec:ablation}).
+
+  \item \textbf{Reproducibility.} The full pipeline --- preprocessing,
+  inference, validation harness, forecasting, decision layer and every
+  experiment reported here --- is released as open source, and all
+  results are obtained from public benchmark data.
+\end{itemize}
+
+\subsection*{Organisation}
+
+Section~\ref{sec:related} reviews related work across machine state
+identification, non-intrusive load monitoring, industrial energy
+optimisation and predictive shutdown, and states the resulting gap.
+Section~\ref{sec:method} presents the framework.
+Section~\ref{sec:states} reports the state layer, including the
+comparison against clustering baselines, the flicker analysis, and the
+ground-truth-free validation. Section~\ref{sec:forecasting} reports the
+forecasting comparison and Section~\ref{sec:significance} the
+statistical analysis on which every subsequent claim depends.
+Section~\ref{sec:decision} develops the decision layer.
+Sections~\ref{sec:multimachine} and~\ref{sec:crossmachine} extend the
+evaluation to all eight machines, to transfer between them, and to a
+second site. Section~\ref{sec:explain} attributes what each model uses,
+Section~\ref{sec:ablation} prices each component, and
+Section~\ref{sec:limitations} states the boundaries of the evidence
+before Section~\ref{sec:conclusion} concludes.

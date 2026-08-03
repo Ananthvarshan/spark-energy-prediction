@@ -36,6 +36,18 @@ Three importance measures on two targets. The paper-relevant target is
 **STANDBY vs productive on energised rows only** — separating OFF is trivial,
 separating STANDBY from a lightly-loaded WORKING state is the actual problem.
 
+> **Correction applied in Phase VII (from PHASE6_NOTES correction 3).** The
+> four-class target was also run and its group importances are stored
+> (`importance_by_group_multiclass.csv`: raw electrical 0.597 SHAP, derived
+> 0.243). **That headline is dropped from the paper rather than updated.**
+> Task 13B reproduces it — `active_power` first, raw electrical 50.6% — but
+> the four-class split is dominated by the OFF boundary, which power
+> magnitude alone resolves, so the ranking it produces says nothing about the
+> claim the paper makes. Only the STANDBY-vs-productive target speaks to that
+> claim, and quoting both invites the reader to average two numbers that
+> answer different questions. The stored CSV is retained for audit; no
+> section of the paper cites it.
+
 Top features by consensus rank: `active_power`, **`power_factor`**,
 **`q_p_ratio`**, `current`.
 

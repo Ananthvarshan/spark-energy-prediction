@@ -1,0 +1,65 @@
+% =====================================================================
+%  abstract.tex  --  PHASE VII, Task 14E
+%
+%  Rewritten from the Phase I draft.  Four things changed and each is a
+%  consequence of a measured result rather than a stylistic choice:
+%
+%   1. The forecasting component is a gradient-boosted tree, not the
+%      Seq2Seq LSTM.  Phase V: the sequence model is beaten by an
+%      untrained persistence reference by 7.95 s of per-window MAE.
+%   2. The decision-layer saving is 2.9 +/- 0.6 USD/yr, not 7.2, and it
+%      is NOT claimed as a saving -- its interval spans zero.  The claim
+%      is the paired contrast against the static rule.
+%   3. The calendar share of the duration forecaster is 82% (Shapley),
+%      not 94.5% (split gain).
+%   4. The physics accept/reject loop is named as a contribution.
+%
+%  NO placeholder survives.  Every number below is traceable to a
+%  stored output; see the section named beside it in the source.
+% =====================================================================
+
+\begin{abstract}
+Industrial machines consume a substantial fraction of their electrical
+energy while energised but not producing, yet eliminating this standby
+consumption in an existing facility is obstructed by three coupled
+difficulties: per-timestamp operating-state annotations do not exist and
+are prohibitively expensive to obtain; the duration of a future
+non-productive interval is unknown at the moment a shutdown decision must
+be made; and shutting a machine down is economical only when that
+duration exceeds a break-even point set by restart cost and standby
+power. Existing work addresses these in isolation---non-intrusive load
+monitoring infers states but neither forecasts nor acts, while
+energy-aware scheduling decides optimally but assumes the idle duration
+is given. This paper proposes a unified, label-free framework that closes
+the loop from raw electrical measurements to an economically justified
+shutdown decision, and evaluates it end to end on IMDELD, a public
+benchmark of $1$\,Hz measurements from eight heavy machines in a
+full-scale plant. The framework comprises (i)~\emph{physics-gated
+unsupervised state inference}, in which a Gaussian hidden Markov model is
+fitted without labels and the resulting partition is then \emph{accepted
+or rejected} against circuit-level checks external to the model;
+(ii)~\emph{non-productive duration forecasting} benchmarked against an
+untrained reference; and (iii)~\emph{optimisation-based decision
+support}, in which the break-even duration is derived as the solution of
+a constrained cost minimisation rather than supplied as a threshold. The
+accept/reject step is load-bearing: fitted at ten seeds the labeller
+places the standby cluster on a physically different state in three, and
+conditioning on a passing score collapses the standby-hour spread from
+$\pm33.7\%$ to $\pm3.0\%$. Temporal decoding reduces state flicker from
+$66.9\%$ to $44.5\%$ and an explicit minimum-dwell constraint removes it
+entirely, at a cost of $0.19\%$ of rows relabelled. Two results are
+reported against expectation: of seven forecasters, five neural sequence
+models are beaten by an untrained persistence reference, and only a
+gradient-boosted tree clears it ($11.50$ against $12.95$\,s of
+per-window MAE, $p_{\text{Holm}}=7\times10^{-4}$); and the proposed
+policy cannot be shown to save money against the plant's own behaviour on
+an 18-day held-out sample ($+2.9$\,USD/yr, $95\%$ CI $[-56,+46]$), though
+it beats the fixed-threshold rule it replaces by $+68.9$\,USD/yr
+($p=0.001$). Across the plant the state definition is physically valid on
+the four motor-driven machines and correctly rejected on the four
+auxiliary ones, and the facility's total attainable standby saving is
+under $90$\,USD/yr. The framework's demonstrated value on this facility
+is therefore decision quality and validated state inference rather than
+recovered energy, and it requires only the voltage and current channels a
+standard retrofit meter already provides.
+\end{abstract}

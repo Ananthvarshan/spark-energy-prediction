@@ -1,0 +1,216 @@
+% =====================================================================
+%  limitations.tex  --  PHASE VII, Task 14D
+%
+%  A dedicated limitations section.  It exists because the phased
+%  evaluation of this framework overturned several of its own earlier
+%  claims, and the resulting boundaries are specific enough to be worth
+%  stating in one place rather than distributing across the results.
+%
+%  Intended placement: Section 11 (\label{sec:limitations}), after the
+%  ablation and before the conclusion.  Also carries
+%  \label{sec:discussion}.
+%
+%  Drop-in usage: \input{limitations}
+%  Bibliography: paper/references.bib
+%
+%  Every item below is traceable to a measured result; none is a
+%  generic caveat.  Where a limitation is quantified, the number is the
+%  one reported in the section named.
+% =====================================================================
+
+\section{Limitations}
+\label{sec:limitations}
+\label{sec:discussion}
+
+The evaluation in this paper was run in phases, each testing the
+preceding one, and several of the framework's original claims did not
+survive that process. The boundaries this leaves are specific, and are
+collected here rather than distributed through the results.
+
+\subsection{The economic claim rests on eighteen factory days}
+\label{sec:limitations:sample}
+
+The decision layer is evaluated on $394$ held-out idle episodes spread
+over \textbf{18 factory days}. The day-block bootstrap therefore has
+eighteen units to resample, and no refinement of the estimator narrows
+the resulting intervals: the proposed policy's $+2.9$\,USD/yr sits
+inside $[-55.9,+46.2]$, and every policy's interval against the plant's
+own behaviour spans zero except the oracle's
+(Section~\ref{sec:significance:decision}).
+
+\textbf{We therefore do not claim that the proposed policy saves money
+against the status quo.} What the data support is narrower and is stated
+as such throughout: adaptive thresholds beat the fixed threshold they
+replace ($+68.9$\,USD/yr, $p=0.001$, paired on the same resample), and
+the head-room is real but largely uncaptured. Whether forecasting beats
+not forecasting on this machine is an open question that eighteen days
+cannot answer, and the ten-seed spread of $\pm0.6$\,USD/yr against a
+sampling spread of $\pm50$\,USD/yr confirms that the binding constraint
+is the record, not the model.
+
+A second consequence follows for anyone reproducing this work: the
+scenario axis is not the uncertainty. The three scenarios differ in the
+valuation of lost production, which is the one coefficient that could
+not be measured and is therefore reported as an \emph{output} of the
+break-even identity rather than assumed. A plant that supplies its own
+figure collapses the three columns to one; it does not narrow the
+interval.
+
+\subsection{Two machines cannot be annualised, and the largest
+per-day figure is one of them}
+\label{sec:limitations:milling}
+
+The milling machines' records cover $12.2$ of $43$ days, in $1\,082$ and
+$580$ acquisition fragments. Twelve covered days support two one-week
+bootstrap blocks, which is not enough to form a usable interval; the
+intervals printed for those rows in Table~\ref{tab:multimachine} exist
+only to make that visible.
+
+This matters because their $5.5$\,h/day is the \emph{largest} per-day
+standby figure among the four machines on which the state definition is
+physically valid, and it is exactly the number a reader would want to
+annualise. \textbf{It must not be annualised.} The same fragmentation
+also breaks the decision layer on those machines --- forecast MAE
+$18\,200$\,s against $9\,034$\,s on pelletizer~I, and a proposed policy
+that loses over $1\,000$\,USD/yr
+(Section~\ref{sec:multimachine:decision}) --- so the two limitations have
+one cause.
+
+\subsection{The window forecaster leans on a site-specific quantity}
+\label{sec:limitations:voltage}
+
+Supply voltage is the largest single channel contributor to the window
+forecaster: $20.0\%$ of its Shapley attribution across nine design
+columns, $11.8\%$ on the final observed value alone
+(Section~\ref{sec:explain:window}). Voltage is not a state variable of
+the machine. It sags under load and recovers when the drive unloads, so
+it is a real but indirect indicator --- and one determined by this site's
+point of common coupling, transformer impedance and the other loads
+sharing the bus.
+
+\textbf{A deployment on another site should not expect that contribution
+to transfer}, and the zero-shot cross-site failure of
+Section~\ref{sec:crossmachine:dataset} (Spearman $-0.245$, worse than
+chance ordering) is consistent with it. Split gain ranks voltage tenth
+of twenty-five channels and would have given no warning; the limitation
+was found by attribution and would not otherwise have been stated at
+all.
+
+\subsection{The attributions are single-machine, and one step removed}
+\label{sec:limitations:attribution}
+
+Three separate qualifications apply to Section~\ref{sec:explain}.
+
+\emph{One machine.} The transition structure is measured on all eight
+machines, but the forecaster and state-layer attributions are computed
+on pelletizer~I only. Whether power factor leads the STANDBY split on
+pelletizer~II and the milling machines is a cheap experiment that has
+not been run, and it is the obvious strengthening of the physics claim.
+
+\emph{A surrogate is not the model.} The state layer is a GMM--HMM;
+what is attributed is a gradient-boosted tree fitted to its output. The
+rankings are meaningful and agree with two other measures, but the
+mechanism is one step removed, and no attribution method for a
+Viterbi-decoded mixture model is applied here.
+
+\emph{Feature dependence is not modelled.} Tree SHAP with the
+path-dependent perturbation splits credit between correlated features in
+a way that depends on tree structure, and \texttt{active\_power},
+\texttt{apparent\_power} and \texttt{current} are strongly correlated on
+this record. The ordering \emph{among those three} should be treated as
+less firm than the gap between them and the calendar or
+rolling-statistic groups.
+
+\subsection{What the ablation does not cover}
+\label{sec:limitations:ablation}
+
+Table~\ref{tab:ablation} is computed on one machine and, in its decision
+block, on one scenario (S2). The other two scenarios are stored and give
+the same ordering, but they are not in the table.
+
+More importantly, \textbf{the strongest accept/reject result in this
+paper is not a row of the ablation}. Conditioning the labelling on a
+passing physics score collapses the STANDBY-hour spread from $\pm33.7\%$
+to $\pm3.0\%$ (Section~\ref{sec:significance:seeds}) --- a larger effect
+than any component the table does contain. It is absent because it is
+measured over labelling seeds while every other row is measured over
+held-out blocks, windows or days, and putting incommensurable units in
+one table is precisely what Section~\ref{sec:ablation:structure} argues
+against. A seed-resampled ablation of the battery, check by check, is
+the experiment that would close this gap.
+
+\subsection{Hyperparameters that are stated rather than learned}
+\label{sec:limitations:hyper}
+
+Four constants are set by argument and not by search, and each is a
+place where a different plant would need to re-derive rather than
+re-use.
+
+The \emph{minimum dwell} is fixed at $10$\,s, equal to the flicker
+threshold, so that it removes exactly what the metric defines as
+implausible and nothing more. That avoids tuning it to its own metric
+but does not make it learned; a hidden semi-Markov
+model~\cite{yu2010hsmm} would estimate the duration distribution
+instead. The \emph{minimum off time} is $600$\,s, with the saving flat
+between $300$ and $1\,200$\,s. The \emph{chance-constraint confidence}
+is a point value of $0.90$, stated before the sweep that later showed it
+near-optimal; a full stochastic programme would price infeasibility
+rather than constrain its probability. And $k=4$ is \emph{imposed}: the
+auxiliary machines would be better described with two states and the
+BIC scan says the driven machines want more than four
+(Section~\ref{sec:multimachine:general}), so a per-machine $k$ selected
+under the physics veto is a needed extension.
+
+One further modelling gap belongs here. \textbf{Restart wear is priced
+only through a per-day cardinality cap}, not as a cost per cycle with a
+bearing-life model --- and the sensitivity sweep found that tightening
+that cap to one restart per day \emph{more than doubles} the saving
+($89$ against $39$\,USD/yr). Since the cap is applied chronologically it
+cannot be selecting the best shutdowns, so a blunt restriction improving
+the outcome means the policy's marginal shutdowns are loss-making: the
+greedy online rule is not optimal under a binding cap, and a positive
+expected-saving margin rather than a zero one is the obvious refinement.
+It is reported rather than tuned away.
+
+\subsection{Scope of the evidence}
+\label{sec:limitations:scope}
+
+\emph{One facility.} All eight machines share a plant, a shift calendar
+and an acquisition system --- and the plant calendar is precisely what
+the duration forecaster turns out to be using. Cross-facility transfer
+of that component is untested on a comparable record, and the
+single-channel evidence available suggests it would fail.
+
+\emph{One comparable dataset, and it is single-channel.} The second
+dataset can exercise the pipeline but not the physics battery: C3 and
+C4, the two checks that do not depend on power magnitude, are undefined
+without current and power-factor channels, and they are the two that
+carry the discriminating power
+(Section~\ref{sec:crossmachine:dataset}).
+On a single-channel record the framework still produces states and still
+consumes them, and the negative control shows it will report recoverable
+standby on a device that cannot be shut down. A second \emph{six-channel}
+industrial record would test the part of the framework that matters
+most; none was available.
+
+\emph{No contactor ground truth.} Nothing in this work observes the
+machine's contactor directly, so the STANDBY/OFF boundary is inferred
+throughout and its residual uncertainty is irreducible from these
+measurements alone. Every state-time total is accordingly quoted to two
+significant figures and conditional on the physics battery passing.
+
+\subsection{Where the framework should not be deployed}
+\label{sec:limitations:deploy}
+
+Stated as criteria rather than caveats, the evidence in this paper rules
+out four situations. \textbf{Non-motor loads}: the state definition is
+specific to induction-motor drives, and on the fans and contactors there
+is no energised-idle state to find. \textbf{Sub-watt standby power}: the
+break-even point is then numerically undefined and every currency figure
+is an artefact. \textbf{Heavily fragmented records}: the decision layer
+inherits its forecaster's quality, and the milling machines show what
+that costs. \textbf{Single-channel metering}: the validation battery
+loses the two checks that carry its discriminating power. In the first
+two cases the framework detects the condition itself and declines to
+report a decision, which is the intended behaviour; in the last two it
+does not, and an external check is required.

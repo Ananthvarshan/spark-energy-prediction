@@ -293,8 +293,22 @@ share.
 fit the four calendar features carry **94.5%** of the gain (`onset_dow` 0.473,
 `cur_is_weekend` 0.291, `onset_hour` 0.106, `cur_is_open` 0.075) and the
 machine's own electrical history carries **2.4%** (`prev_productive_power_w`).
-A model that is 94.5% calendar will transfer between any two machines on the
-same shift pattern and will transfer to nothing else — which is exactly the
+
+> **CORRECTED in Phase VII (PHASE6_NOTES correction 1). Do not quote 94.5%.**
+> That figure is split gain, and Phase VI showed gain is misranking this
+> model: `cur_is_weekend` takes 63.2% of the gain and 5.1% of the Shapley
+> attribution, because it is a binary split near the root on a partition
+> later splits refine. The figure the paper quotes is the Shapley
+> attribution: **82.4% calendar (96.7% of gain) under the minimum-dwell
+> labelling**, and **78.0% (96.2%)** on the Phase I–III labelling this
+> sentence was originally measured on. The machine's own production history
+> carries **13.3%**, not 2.4%. The *conclusion* below is unchanged and is now
+> better supported: a model that is four-fifths plant calendar transfers
+> within the facility and nowhere else. `paper/crossmachine.tex` §
+> "What the forecaster is actually using" carries the corrected statement.
+
+A model that is four fifths calendar will transfer between any two machines on
+the same shift pattern and will transfer to nothing else — which is exactly the
 pattern Part A measures here and Task 10 measures across sites. Note the
 contrast with Task 3, where temporal features were nearly irrelevant (1–4%) to
 the *state* split: the two layers of the framework depend on almost disjoint

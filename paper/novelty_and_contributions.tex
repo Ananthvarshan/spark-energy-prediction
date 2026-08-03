@@ -1,268 +1,86 @@
 % =====================================================================
 %  novelty_and_contributions.tex  --  PHASE I, Task 2
 %
-%  Reframes the paper from an application note ("we apply GMM and LSTM")
-%  to a methodology contribution ("we propose a unified framework").
+%  SUPERSEDED IN PHASE VII.  This file no longer contains paper text.
+%  Do not \input it; the assembled draft (main.tex) uses
 %
-%  Contains, in order:
-%    1. Reframed abstract               -> replaces the current abstract
-%    2. Positioning / novelty statement -> end of Section 1 (Introduction)
-%    3. Itemised contribution list      -> immediately after (2)
-%    4. Paper organisation paragraph    -> closes Section 1
+%      abstract.tex        the abstract
+%      introduction.tex    positioning, contributions, organisation
 %
-%  Drop-in usage: copy the relevant block into the main document, or
-%  \input{novelty_and_contributions} after \section{Introduction}.
-%  Bibliography: paper/references.bib
+%  which carry the same argument with the numbers Phases II-VI actually
+%  produced.  Keeping the prose in two places would guarantee that one
+%  copy drifts, so it lives in one.  What remains here is the design
+%  rationale for the reframing, which is not recorded anywhere else and
+%  is worth keeping.
 % =====================================================================
-
-
-% ---------------------------------------------------------------------
-% 1. REFRAMED ABSTRACT
-% ---------------------------------------------------------------------
-% Replaces the current abstract. Structure: context -> gap -> what we
-% propose (three named components) -> how it is validated -> headline
-% result -> significance. Numeric placeholders marked XX must be filled
-% from the final experimental run before submission.
 %
-% PHASE III WARNING ON THE FINAL SENTENCE OF RESULTS.
-% The placeholder "...at a payback period of XX years" cannot be filled
-% with a favourable figure for pelletizer-I. The plant already
-% de-energises for the long idle gaps, leaving 86.8 h of energised idle
-% over 63 days of coverage (~325 kWh, ~39 USD/yr at 0.12 USD/kWh), so a
-% 5,000 USD retrofit pays back in ~130 years and a three-year payback
-% needs a per-machine cost under ~116 USD. Do NOT quote a payback number
-% as a headline. The defensible claims are (a) recoverable energy, and
-% (b) decision quality: the proposed policy captures 55-76% of the
-% attainable head-room and removes the status quo's 20 constraint-
-% violating and 29 loss-making shutdowns. Payback belongs in the
-% sensitivity discussion. Revisit after Phase IV establishes whether any
-% IMDELD machine has a larger energised-idle fraction.
-% ---------------------------------------------------------------------
-
-\begin{abstract}
-Industrial machines consume a substantial fraction of their total
-electrical energy while energised but not producing, yet eliminating
-this standby consumption in an existing facility is obstructed by three
-coupled difficulties: per-timestamp operating-state annotations do not
-exist and are prohibitively expensive to obtain; the duration of a
-future non-productive interval is unknown at the moment a shutdown
-decision must be made; and shutting a machine down is only economical
-when that duration exceeds a break-even point set by restart energy,
-tariff, and production constraints. Existing work addresses these in
-isolation---non-intrusive load monitoring infers states but does not
-forecast or act, while energy-aware scheduling decides optimally but
-assumes the idle duration is given. This paper proposes a unified,
-label-free framework that closes the loop from raw electrical
-measurements to an economically justified shutdown decision. The
-framework comprises three components: (i)~\emph{physics-validated
-unsupervised state inference}, in which a Gaussian hidden Markov model
-jointly learns the emission distributions and the transition dynamics of
-the machine's operating states, and the resulting partition---which
-cannot be checked against ground truth---is validated by an ensemble of
-independent physical, circuit-level, and operational-schedule tests
-rather than by supervised metrics; (ii)~\emph{non-productive duration
-forecasting}, in which a sequence-to-sequence LSTM predicts the length
-of the upcoming standby interval from the inferred state history; and
-(iii)~\emph{optimisation-based shutdown decision support}, in which the
-break-even duration is derived as the solution of a constrained
-cost-minimisation problem over standby, restart, and production-delay
-costs, rather than supplied as a tuning parameter. The framework is
-evaluated end-to-end on IMDELD, a public benchmark of 1\,Hz
-measurements from eight heavy machines in a full-scale industrial
-plant. Temporal modelling reduces the state-sequence flicker rate from
-XX\% to XX\%, the forecasting stage attains a standby-duration MAE of
-XX, and the decision layer identifies XX\,kWh/year of recoverable
-standby energy per machine at a payback period of XX~years. The
-framework requires only the voltage and current measurements a standard
-retrofit meter already provides, and its outputs map directly onto
-ISO~50001 energy performance indicators.
-\end{abstract}
-
-
-% ---------------------------------------------------------------------
-% 2. POSITIONING / NOVELTY STATEMENT
-%    Place at the end of Section 1, immediately after the gap has been
-%    stated. This is the sentence reviewers will quote back.
-% ---------------------------------------------------------------------
-
-% --- BEFORE (do not use; retained here only to document the change) ---
-% "We apply a Gaussian Mixture Model for state identification and an
-%  LSTM for forecasting."
-%  -> Reads as an application of two off-the-shelf models. Invites the
-%     reviewer question "what is new here?" with no defensible answer.
-% ----------------------------------------------------------------------
-
-\medskip
-\noindent
-To close this gap we propose a \emph{unified data-driven framework for
-industrial standby energy elimination}. Rather than treating state
-inference, forecasting, and control as separate problems, the framework
-treats them as one pipeline whose stages are designed against each
-other's requirements: the inference stage is constrained to produce a
-temporally coherent sequence because duration forecasting is otherwise
-ill-posed, and the forecasting stage is constrained to predict duration
-rather than class because the decision stage consumes a duration. The
-framework consists of three components:
-
-\begin{enumerate}
-  \item \textbf{Physics-validated unsupervised state inference.} A
-  Gaussian hidden Markov model \cite{rabiner1989tutorial} with a sticky
-  self-transition prior \cite{fox2011sticky} jointly estimates the
-  emission distributions and the transition dynamics of the machine's
-  operating states directly from electrical measurements, requiring no
-  annotation. Because no ground-truth labels exist against which the
-  resulting partition could be scored, we replace supervised evaluation
-  with a validation ensemble drawn from sources external to the model:
-  induction-motor power-factor and no-load current physics, conservation
-  of power across the plant's circuit hierarchy, dwell-time
-  plausibility, cross-machine replication between structurally identical
-  units, and agreement with the factory's known shift schedule.
-
-  \item \textbf{Non-productive duration forecasting.} A
-  sequence-to-sequence LSTM \cite{hochreiter1997lstm,sutskever2014seq2seq}
-  maps the recent inferred-state history to the duration of the upcoming
-  standby interval. Predicting duration, rather than the next state
-  label, is what makes the output actionable: the break-even criterion
-  is a statement about how long a machine will remain idle, not about
-  what it is doing now.
-
-  \item \textbf{Optimisation-based shutdown decision support.} The
-  shutdown decision is posed as minimisation of total cost---standby
-  energy, restart energy and labour, and production-delay penalty---
-  subject to thermal cool-down, restart-frequency, and schedule
-  constraints, in the spirit of \cite{mouzon2007operational} but with
-  the idle duration supplied by component~(ii) instead of by a known
-  schedule. The break-even duration is therefore a \emph{derived}
-  quantity of the optimisation rather than an operator-supplied
-  threshold, and its sensitivity to tariff and restart energy is
-  reported explicitly.
-\end{enumerate}
-
-\noindent
-The framework is validated end-to-end on the IMDELD benchmark
-\cite{imdeld2018dataset,martins2018imdeld}, comprising 1\,Hz electrical
-measurements from eight heavy machines in a full-scale Brazilian
-poultry-feed pellet plant.
-
-\medskip
-\noindent
-\textbf{Scope of the claim.} We do not claim novelty in the Gaussian
-HMM, the sequence-to-sequence LSTM, or the break-even criterion, each of
-which is established. The contribution is the framework that connects
-them---specifically, the demonstration that label-free state inference
-can be made trustworthy enough, and temporally coherent enough, to serve
-as the input to an economic control decision on real industrial data, a
-connection that Section~\ref{sec:related} shows has not previously been
-established.
-
-
-% ---------------------------------------------------------------------
-% 3. CONTRIBUTION LIST
-%    Place immediately after the positioning statement. Each item is
-%    phrased so that a specific experiment in the paper substantiates
-%    it; cross-references point to the sections that do so.
-% ---------------------------------------------------------------------
-
-\noindent
-The specific contributions of this paper are as follows.
-
-\begin{itemize}
-  \item \textbf{A label-free, temporally coherent state inference
-  procedure for industrial electrical loads, and an account of what
-  temporal coherence actually requires.} Viterbi decoding over a learned
-  transition matrix reduces the flicker rate substantially relative to
-  i.i.d.\ assignment, but---contrary to the usual assumption---it cannot
-  eliminate it, and neither can strengthening the transition prior. The
-  penalty a transition matrix can impose on a state change is bounded by
-  $\log(p_{\text{self}}/p_{\text{switch}})$, a few nats, whereas
-  full-covariance Gaussian emissions fitted to low-noise electrical data
-  routinely differ by hundreds of nats between adjacent states, so the
-  emission term dominates the decode. We quantify this, show that the
-  remedy is an explicit minimum-dwell constraint rather than a stronger
-  prior, and demonstrate that the constraint removes the flicker
-  essentially without cost to any physical or schedule-based check
-  (Section~\ref{sec:method:hmm}, Table~\ref{tab:ablation}).
-
-  \item \textbf{A validation methodology for state partitions in the
-  absence of ground truth.} We formulate five mutually independent
-  validation tests---power-factor separation, no-load current ratio,
-  circuit-level power conservation, dwell-time plausibility, and
-  cross-machine replication---none of which uses the model's own
-  internal statistics, and aggregate them by consensus
-  \cite{strehl2002cluster}. This addresses a problem that recurs
-  throughout unsupervised industrial analytics and is, to our knowledge,
-  not otherwise treated systematically
-  (Section~\ref{sec:validation}).
-
-  \item \textbf{Forecasting of non-productive interval duration from
-  inferred states.} We formulate standby-duration prediction as a
-  sequence-to-sequence task over label-free inferred states and
-  benchmark it against recurrent, convolutional, transformer, and
-  tree-based alternatives under a common protocol with statistical
-  significance testing (Section~\ref{sec:forecasting}).
-
-  % --- REVISED IN PHASE III -------------------------------------------
-  % Previously: "...report break-even sensitivity across electricity
-  % tariff and restart energy, giving operators a decision surface."
-  % Both halves needed correcting. (i) Break-even is INVARIANT to tariff
-  % when the restart cost is purely electrical -- the tariff cancels in
-  % Eq. (breakeven) -- so a tariff x restart-energy surface is degenerate;
-  % price enters only through non-energy terms. (ii) The restart energy
-  % of the studied machine is not measurably positive, so the sensitivity
-  % that matters is over the production-delay valuation.
-  % --------------------------------------------------------------------
-  \item \textbf{An optimisation-based decision layer in which the
-  break-even duration is derived rather than assumed, and a
-  characterisation of when forecasting is worth its cost.} We replace the
-  fixed-threshold shutdown rule with a constrained cost minimisation,
-  show that the reduced problem admits an exact offline optimum, and
-  measure the restart coefficients from the record instead of assuming
-  them---finding that the studied machine has no measurable electrical
-  restart penalty, so its restart cost is a production-delay cost. We
-  show analytically and numerically that the break-even duration is
-  \emph{independent of electricity tariff} whenever the restart cost is
-  purely electrical, and therefore report the decision surface over the
-  axes that do carry information. Because the idle duration is unknown
-  when the decision must be made, the problem is an instance of
-  rent-or-buy \cite{karlin1994competitive}; we benchmark against the
-  $2$-competitive forecast-free rule rather than against trivial
-  policies, and identify the regime---restart cost large relative to the
-  idle-duration distribution---in which a forecast earns its place
-  (Section~\ref{sec:decision}).
-
-  \item \textbf{End-to-end evaluation on real industrial data, with
-  ablation.} We evaluate every stage on IMDELD across multiple machine
-  types, quantify each component's marginal contribution by ablation,
-  and report recoverable energy, avoided CO\textsubscript{2}, and
-  payback period alongside the accuracy metrics
-  (Sections~\ref{sec:results}--\ref{sec:sustainability}).
-
-  \item \textbf{Reproducibility.} The full pipeline---preprocessing,
-  inference, validation harness, forecasting, and decision layer---is
-  released as open source, and all results are obtained from a public
-  benchmark dataset.
-\end{itemize}
-
-
-% ---------------------------------------------------------------------
-% 4. PAPER ORGANISATION
-% ---------------------------------------------------------------------
-
-\noindent
-The remainder of this paper is organised as follows.
-Section~\ref{sec:related} reviews related work across machine state
-identification, non-intrusive load monitoring, industrial energy
-optimisation, and predictive shutdown, and states the resulting research
-gap. Section~\ref{sec:method} presents the proposed framework.
-Section~\ref{sec:validation} describes the ground-truth-free validation
-methodology. Section~\ref{sec:results} reports experimental results,
-baseline comparisons, and ablation studies.
-Section~\ref{sec:sustainability} quantifies the energy, emissions, and
-economic implications. Section~\ref{sec:discussion} discusses failure
-cases, limitations, and deployment considerations, and
-Section~\ref{sec:conclusion} concludes.
-baseline comparisons, and ablation studies.
-Section~\ref{sec:sustainability} quantifies the energy, emissions, and
-economic implications. Section~\ref{sec:discussion} discusses failure
-cases, limitations, and deployment considerations, and
-Section~\ref{sec:conclusion} concludes.
+%  WHY THE PAPER WAS REFRAMED (Phase I)
+%  ------------------------------------
+%  Before:  "We apply a Gaussian Mixture Model for state identification
+%            and an LSTM for forecasting."
+%  Problem: reads as an application of two off-the-shelf models, and
+%           invites the reviewer question "what is new here?" with no
+%           defensible answer.
+%  After:   a unified framework whose three stages are designed against
+%           each other's requirements -- inference constrained to be
+%           temporally coherent because forecasting is otherwise
+%           ill-posed; forecasting constrained to predict duration
+%           because the decision stage consumes a duration.
+%
+%  Three additions were made beyond the plan's replacement text, and
+%  each has since earned its place:
+%
+%   1. A reframed abstract, because the old framing also lived there and
+%      that is what a reviewer reads first.
+%   2. An explicit scope-of-claim paragraph.  Stating "we claim no
+%      novelty in the GHMM, the sequence model, or the break-even
+%      criterion" before a reviewer does converts the paper's weakest
+%      attack surface into evidence of self-awareness; without it,
+%      "these are all off-the-shelf components" is the obvious
+%      desk-reject line.
+%   3. A contribution list in which each item names the experiment that
+%      substantiates it.  Contributions a reviewer cannot trace to a
+%      table are read as claims, not contributions.
+%
+%  WHAT LATER PHASES CHANGED, AND WHY
+%  ----------------------------------
+%  Phase II  (Task 4b/4c) -- contribution 1 originally claimed that
+%      jointly learning emissions and transitions reduced flicker by an
+%      order of magnitude.  Both halves were wrong: joint emission
+%      fitting converges worse than warm-starting from the GMM, and the
+%      HMM alone takes flicker from 66.9% only to 44.5%.  The claim is
+%      now the bounded-transition-cost result, and the credit for
+%      removing flicker goes to the minimum-dwell constraint.
+%
+%  Phase III (Task 7) -- contribution 4 originally promised "break-even
+%      sensitivity across electricity tariff and restart energy".  The
+%      tariff axis is degenerate: when the restart cost is purely
+%      electrical the tariff cancels in the break-even identity, so
+%      every column of the planned heat-map is identical.  The claim is
+%      now the invariance result plus a sweep over the axes that carry
+%      information.
+%
+%  Phase V   (Task 11A/12A) -- contribution 3 originally proposed the
+%      Seq2Seq LSTM as the forecasting component.  It is beaten by an
+%      untrained persistence reference by 7.95 s of per-window MAE.
+%      The component is now a gradient-boosted tree, the sequence
+%      models are reported as compared baselines, and the negative
+%      result is itself part of the contribution.
+%
+%  Phase V   (Task 12B) -- the physics accept/reject loop was promoted
+%      from an implementation detail to a named contribution, because
+%      3 seeds in 10 fail it and conditioning on it is what makes the
+%      headline state-time total reproducible (CV 33.7% -> 3.0%).
+%
+%  Phase VI  (Task 13A) -- the "94.5% of the forecaster is calendar"
+%      figure was split gain.  Under Shapley attribution it is 82.4%,
+%      and gain is misranking the model badly enough that the
+%      correction is worth making explicitly.  The conclusion drawn
+%      from it is unchanged.
+%
+%  Phase VII -- the forward references to a sustainability section and
+%      a deployment section were removed rather than left dangling.
+%      Neither analysis is in this paper; promising them in the
+%      contribution list and not delivering them is worse than not
+%      promising them.
+% =====================================================================

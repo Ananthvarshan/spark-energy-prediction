@@ -1,0 +1,99 @@
+% =====================================================================
+%  conclusion.tex  --  PHASE VII, Task 14C
+%
+%  Section 12 (\label{sec:conclusion}).  Written after the limitations
+%  section, so it does not have to hedge: the boundaries are already
+%  stated and the conclusion can be direct about what was and was not
+%  demonstrated.
+%
+%  Drop-in usage: \input{conclusion}
+%  Bibliography: paper/references.bib
+% =====================================================================
+
+\section{Conclusion}
+\label{sec:conclusion}
+
+This paper set out to connect two capabilities that had matured
+separately: inferring an industrial machine's operating state from its
+electrical measurements, and deciding optimally when to de-energise it.
+The connecting quantity is the duration of a non-productive interval,
+which the first literature does not forecast and the second assumes is
+given. We proposed a unified label-free framework that supplies it, and
+evaluated every stage end to end on a public industrial benchmark of
+eight machines.
+
+Four results stand.
+
+\textbf{Label-free state inference can be made trustworthy, but only if
+the fit is gated.} Fitted at ten seeds on identical data, the labeller
+places the standby cluster on a physically different state in three of
+them, and the headline standby total moves by a third of its value.
+Five circuit-level checks --- none of which uses the model's own
+statistics --- separate those three from the other seven exactly, and
+conditioning on them collapses the spread to $3\%$. An accept/reject
+step is therefore part of the method, not an appendix to it, and this is
+the paper's central methodological claim.
+
+\textbf{Temporal coherence requires a duration model, not a stronger
+prior.} A transition matrix can penalise a state change by at most
+$\log(p_{\text{self}}/p_{\text{switch}})$ --- $9.23$ nats here --- while
+the emission term routinely exceeds that by orders of magnitude, so at
+over half of all timesteps the transition model cannot influence the
+decode at all. Viterbi decoding takes flicker from $66.9\%$ to $44.5\%$;
+an explicit minimum-dwell constraint takes it to zero, at a cost of
+$0.19\%$ of rows and no measurable change to any physics or schedule
+check, on all eight machines.
+
+\textbf{Two of the framework's own components did not earn their
+place, and are reported as such.} An untrained persistence reference
+beats all five neural sequence forecasters, the originally proposed
+sequence-to-sequence model by the largest margin of the seven; only a
+gradient-boosted tree clears the reference, and by $1.45$\,s of
+per-window MAE. On the economics, the proposed policy cannot be shown to
+beat the plant's own behaviour on an 18-day held-out sample. What it
+does beat, significantly and in every scenario, is the fixed-threshold
+rule it was built to replace. The defensible decision-layer claim is
+that \emph{adaptive thresholds beat a fixed one}, not that forecasting
+beats not forecasting.
+
+\textbf{The framework says where it does not apply.} Across the plant
+the state definition is physically valid on the four motor-driven
+machines and is rejected by the battery on the four auxiliary ones,
+where no energised-idle state exists to find. Applied to a second site
+it correctly characterises a CNC machining centre and --- on a
+single-channel record, having lost the two checks that carry the
+discriminating power --- fails to reject a solar inverter, a device that
+cannot be shut down at all. A validation battery is only worth quoting
+if it can reject something; this one rejects four machines out of eight
+and, under reduced instrumentation, is shown to have a blind spot.
+
+\medskip
+\noindent
+Set against the improvement the framework can extract, the honest
+summary is that the facility's total attainable standby saving is under
+$90$\,USD/yr, because the plant already de-energises for its long idle
+gaps. \textbf{On this facility the framework's value is validated state
+inference and decision quality, not recovered energy}, and that
+conclusion belongs in the abstract rather than at the end of a
+discussion. Whether a plant that does not already shut down manually,
+or one with a larger energised-idle fraction, changes the arithmetic is
+exactly the question the method now makes answerable from a meter
+alone.
+
+\subsection*{Future work}
+
+Four extensions follow directly from the limitations of
+Section~\ref{sec:limitations}. A \emph{longer record} is the only thing
+that can settle the economic question: eighteen factory days is the
+binding constraint on every currency interval here, and no estimator
+narrows it. A \emph{second six-channel industrial dataset} would test
+the physics battery rather than only the pipeline, which the available
+single-channel record cannot do. A \emph{hidden semi-Markov
+formulation}~\cite{yu2010hsmm} would learn the state-duration
+distribution instead of imposing a constant, and a per-machine state
+count selected under the physics veto would remove the $k=4$ assumption
+that the eight-machine study shows to be wrong in both directions.
+Finally, a \emph{seed-resampled ablation of the validation battery
+itself}, check by check, would price the component this paper argues is
+most important and is the one component its ablation table does not
+contain.
