@@ -339,13 +339,39 @@ def _xgb_featurise(X: np.ndarray, n_blocks: int = XGB_SUBBLOCKS) -> np.ndarray:
     return np.concatenate(parts, axis=1).astype(np.float32)
 
 
+def xgb_design_feature_names(
+    feature_cols: list[str], n_blocks: int = XGB_SUBBLOCKS,
+) -> list[str]:
+    """
+    Column names of the flattened design matrix `_xgb_featurise` produces,
+    in the order it produces them, plus the horizon-step column appended by
+    `train_xgboost`.
+
+    Kept next to the featuriser rather than reconstructed by a caller: the
+    two must not be able to drift apart, because Phase VI's SHAP attribution
+    is only meaningful if every column carries the name of the quantity it
+    actually holds.
+    """
+    names = [f"{f}|last" for f in feature_cols]
+    for b in range(n_blocks):
+        names += [f"{f}|b{b}_mean" for f in feature_cols]
+        names += [f"{f}|b{b}_std" for f in feature_cols]
+    return names + ["horizon_step"]
+
+
 def train_xgboost(
     X_tr, y_tr, X_va, y_va, X_te, n_states, class_weight, seed, out_dir,
+    capture: dict | None = None,
 ):
     """
     Direct multi-horizon tree baseline: the horizon step index is an input
     feature, so one model serves all H steps rather than training H
     separate models.
+
+    `capture`, if given, is filled with the fitted booster and the design
+    matrices so that Phase VI can attribute this exact model rather than a
+    re-implementation of it.  Nothing is captured unless asked for, so the
+    Task 5 and Task 12 call sites are unaffected.
     """
     import xgboost as xgb
 
@@ -384,10 +410,16 @@ def train_xgboost(
     n_te = len(F_te)
     wi = np.repeat(np.arange(n_te), H)
     si = np.tile(np.arange(H), n_te)
+    Xd_te = np.column_stack([F_te[wi], si.astype(np.float32)])
     t0 = time.time()
-    pred = model.predict(np.column_stack([F_te[wi], si.astype(np.float32)]))
+    pred = model.predict(Xd_te)
     infer_s = time.time() - t0
     y_pred = pred.reshape(n_te, H).astype(np.int16)
+
+    if capture is not None:
+        capture.update({"model": model, "design_train": Xd_tr,
+                        "design_test": Xd_te, "y_design_train": yd_tr,
+                        "n_windows_test": n_te, "horizon_steps": H})
 
     return y_pred, {
         "n_params": int(model.get_booster().num_boosted_rounds()),
