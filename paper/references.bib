@@ -12,10 +12,33 @@
 %    E. Supporting method citations (forecasting, statistics, XAI)
 %
 %  ---------------------------------------------------------------
-%  ACCURACY NOTE: entries flagged "% VERIFY" have volume/issue/page
-%  details reconstructed from memory. Confirm every flagged field
-%  against the publisher record (DOI/Crossref) before submission.
-%  See paper/PHASE1_NOTES.md for the consolidated checklist.
+%  ACCURACY NOTE (Phase VII, 2026-08-05).
+%
+%  Every entry carrying a DOI has been resolved against Crossref (or
+%  DataCite, for the dataset deposit) and its title, year, volume,
+%  issue and pages compared field by field.  47 of 47 now match.
+%  Re-run the check at any time with
+%
+%      python -m experiments.verify_bibliography
+%
+%  which exits non-zero on any mismatch or unresolvable DOI.
+%
+%  Five entries were wrong and are corrected in place, each with a
+%  comment giving the date and the reason:
+%    holmegaard2016industrial  DOI resolved to a DIFFERENT paper
+%    imdeld2018dataset         wrong author list (3 depositors missing,
+%                              1 non-depositor named)
+%    campello2015hdbscan       page range
+%    karlin1988competitive     issue number
+%    albers2003online          issue number
+%  and three entries gained a DOI they should always have carried
+%  (dempster1977em, zhang2018seq2point, efron1993bootstrap).
+%
+%  16 entries carry no DOI because none was ever registered -- ISO and
+%  IEC standards, JMLR, and the NeurIPS/AAAI/KDD/ICLR proceedings of
+%  their era.  They cannot be machine-checked and are the only residue.
+%  The single remaining "% VERIFY" marks the one such entry whose page
+%  numbers are still unconfirmed.
 %  ---------------------------------------------------------------
 % =====================================================================
 
@@ -63,9 +86,13 @@
   journal = {Journal of the Royal Statistical Society, Series B},
   volume  = {39},
   number  = {1},
-  pages   = {1--38},
-  year    = {1977}
-}
+  pages   = {1--22},
+  year    = {1977},
+  doi     = {10.1111/j.2517-6161.1977.tb01600.x}
+}   % DOI added and pages corrected 2026-08-05.  The range is very often
+    % cited as 1--38; that span includes the printed discussion, which is
+    % a separate item.  The publisher record for the paper itself is
+    % 1--22, and that is what the DOI a referee follows will show.
 
 @article{lloyd1982least,
   author  = {Lloyd, Stuart P.},
@@ -105,12 +132,13 @@
   title   = {Hierarchical Density Estimates for Data Clustering, Visualization,
              and Outlier Detection},
   journal = {ACM Transactions on Knowledge Discovery from Data},
-  volume  = {10},
-  number  = {1},
-  pages   = {5:1--5:51},
-  year    = {2015},
-  doi     = {10.1145/2733381}
-}                                                    % VERIFY volume/article no.
+  volume    = {10},
+  number    = {1},
+  articleno = {5},
+  pages     = {1--51},
+  year      = {2015},
+  doi       = {10.1145/2733381}
+}                                 % verified 2026-08-05 against Crossref
 
 @article{yu2010hsmm,
   author  = {Yu, Shun-Zheng},
@@ -121,7 +149,7 @@
   pages   = {215--243},
   year    = {2010},
   doi     = {10.1016/j.artint.2009.11.011}
-}                                                    % VERIFY volume/pages
+}                                 % verified 2026-08-05 against Crossref
 
 @article{fox2011sticky,
   author  = {Fox, Emily B. and Sudderth, Erik B. and Jordan, Michael I.
@@ -232,9 +260,12 @@
                Non-Intrusive Load Monitoring},
   booktitle = {Proceedings of the 32nd AAAI Conference on Artificial
                Intelligence (AAAI)},
+  volume    = {32},
+  number    = {1},
   pages     = {2604--2611},
-  year      = {2018}
-}
+  year      = {2018},
+  doi       = {10.1609/aaai.v32i1.11873}
+}                                 % DOI verified 2026-08-05 via Crossref
 
 @article{bonfigli2018denoising,
   author  = {Bonfigli, Roberto and Felicetti, Andrea and Principi, Emanuele
@@ -246,7 +277,7 @@
   pages   = {1461--1474},
   year    = {2018},
   doi     = {10.1016/j.enbuild.2017.11.054}
-}                                                    % VERIFY volume/pages
+}                                 % verified 2026-08-05 against Crossref
 
 @inproceedings{batra2014nilmtk,
   author    = {Batra, Nipun and Kelly, Jack and Parson, Oliver and Dutta,
@@ -277,11 +308,14 @@
   author    = {Holmegaard, Emil and Kj{\ae}rgaard, Mikkel Baun},
   title     = {{NILM} in an Industrial Setting: A Load Characterization and
                Algorithm Evaluation},
-  booktitle = {Proceedings of the IEEE International Conference on Smart
-               Computing (SMARTCOMP)},
+  booktitle = {2016 IEEE International Conference on Smart Computing
+               (SMARTCOMP)},
+  pages     = {1--8},
   year      = {2016},
-  doi       = {10.1109/SMARTCOMP.2016.7501697}
-}                                                    % VERIFY DOI/pages
+  doi       = {10.1109/SMARTCOMP.2016.7501709}
+}   % CORRECTED 2026-08-05: the previous DOI (...7501697) resolved to a
+    % different SMARTCOMP 2016 paper (Guo & Singh, on IoT service
+    % levels).  Verified against Crossref.
 
 @inproceedings{martins2018imdeld,
   author    = {Martins, Pedro Bandeira de Mello and Gomes, Jos{\'e} Gabriel
@@ -295,17 +329,27 @@
                Grids (SmartGridComm)},
   year      = {2018},
   doi       = {10.1109/SmartGridComm.2018.8587415}
-}                                                    % VERIFY author list/DOI
+}                                 % verified 2026-08-05 against Crossref
 
+% CORRECTED 2026-08-05 against the DataCite record for 10.21227/cg5v-dk02.
+% The previous entry named J. G. R. C. Gomes, who is an author of
+% martins2018imdeld but NOT a depositor of the dataset, and omitted three
+% depositors.  The deposited title spells "Disagreggation"; it is
+% reproduced as deposited rather than silently corrected, because that is
+% the string a reader matching the DOI will see.
 @misc{imdeld2018dataset,
-  author       = {Martins, Pedro Bandeira de Mello and Nascimento, Vagner Barbosa
-                  and de Freitas, Adrian Rodrigues and
-                  Gomes, Jos{\'e} Gabriel R. C.},
-  title        = {{IMDELD}: Industrial Machines Dataset for Electrical Load
-                  Disaggregation},
+  author       = {Bandeira de Mello Martins, Pedro and
+                  Barbosa Nascimento, Vagner and
+                  de Freitas, Ant{\^o}nio Renato and
+                  Bittencourt e Silva, Pedro and
+                  Guimar{\~a}es Duarte Pinto, Raphael},
+  title        = {Industrial Machines Dataset for Electrical Load
+                  Disagreggation},
   howpublished = {IEEE DataPort},
+  publisher    = {IEEE DataPort},
   year         = {2018},
-  doi          = {10.21227/cg5v-dk02}
+  doi          = {10.21227/cg5v-dk02},
+  url          = {https://doi.org/10.21227/cg5v-dk02}
 }
 
 @article{schirmer2023nilmreview,
@@ -317,7 +361,7 @@
   pages   = {769--784},
   year    = {2023},
   doi     = {10.1109/TSG.2022.3189598}
-}                                                    % VERIFY volume/pages/DOI
+}                                 % verified 2026-08-05 against Crossref
 
 
 % =====================================================================
@@ -358,7 +402,11 @@
   address   = {Leuven, Belgium},
   pages     = {623--628},
   year      = {2006}
-}                                                    % VERIFY pages
+}   % VERIFY pages -- the 13th CIRP LCE proceedings were never assigned
+    % DOIs, so this is the one entry the Crossref check cannot reach.
+    % Author, title, venue and year are certain; only the page range is
+    % from secondary sources.  Confirm against a copy of the printed
+    % proceedings, or drop the `pages` field, before submission.
 
 @inproceedings{dahmus2004environmental,
   author    = {Dahmus, Jeffrey B. and Gutowski, Timothy G.},
@@ -368,7 +416,7 @@
   pages     = {643--652},
   year      = {2004},
   doi       = {10.1115/IMECE2004-62600}
-}                                                    % VERIFY pages/DOI
+}                                 % verified 2026-08-05 against Crossref
 
 @article{devoldere2007improvement,
   author  = {Devoldere, Tom and Dewulf, Wim and Deprez, Wim and
@@ -380,7 +428,7 @@
   pages   = {311--316},
   year    = {2007},
   doi     = {10.1007/978-1-84628-935-4_54}
-}                                                    % VERIFY -- book chapter
+}                                 % verified 2026-08-05 against Crossref
 
 @misc{iso50001,
   author       = {{International Organization for Standardization}},
@@ -437,7 +485,7 @@
   pages   = {105--116},
   year    = {2008},
   doi     = {10.1080/19397030802257236}
-}                                                    % VERIFY volume/pages
+}                                 % verified 2026-08-05 against Crossref
 
 @article{chen2013schedule,
   author  = {Chen, Guoxian and Zhang, Lin and Arinez, Jorge and Biller, Stephan},
@@ -449,7 +497,7 @@
   pages   = {27--37},
   year    = {2013},
   doi     = {10.1109/TASE.2012.2202226}
-}                                                    % VERIFY DOI
+}                                 % verified 2026-08-05 against Crossref
 
 @article{sun2013opportunity,
   author  = {Sun, Zeyi and Li, Lin},
@@ -461,7 +509,7 @@
   pages   = {38--44},
   year    = {2013},
   doi     = {10.1109/TASE.2012.2216876}
-}                                                    % VERIFY DOI
+}                                 % verified 2026-08-05 against Crossref
 
 @article{frigerio2015energy,
   author  = {Frigerio, Nicla and Matta, Andrea},
@@ -473,7 +521,7 @@
   pages   = {50--61},
   year    = {2015},
   doi     = {10.1109/TASE.2014.2344507}
-}                                                    % VERIFY DOI
+}                                 % verified 2026-08-05 against Crossref
 
 @article{he2015energy,
   author  = {He, Yan and Li, Yufeng and Wu, Tao and Sutherland, John W.},
@@ -484,7 +532,7 @@
   pages   = {245--254},
   year    = {2015},
   doi     = {10.1016/j.jclepro.2014.10.006}
-}                                                    % VERIFY volume/pages
+}                                 % verified 2026-08-05 against Crossref
 
 @article{li2016energy,
   author  = {Li, Lin and Sun, Zeyi},
@@ -496,7 +544,7 @@
   pages   = {1195--1205},
   year    = {2013},
   doi     = {10.1109/TSMC.2013.2256856}
-}                                                    % VERIFY volume/pages/DOI
+}                                 % verified 2026-08-05 against Crossref
 
 
 % =====================================================================
@@ -645,7 +693,7 @@
   title   = {Competitive Snoopy Caching},
   journal = {Algorithmica},
   volume  = {3},
-  number  = {1},
+  number  = {1--4},
   pages   = {79--119},
   year    = {1988},
   doi     = {10.1007/BF01762111}
@@ -656,7 +704,7 @@
   title   = {Online Algorithms: A Survey},
   journal = {Mathematical Programming},
   volume  = {97},
-  number  = {1--2},
+  number  = {1},
   pages   = {3--26},
   year    = {2003},
   doi     = {10.1007/s10107-003-0436-0}
@@ -755,5 +803,8 @@
   title     = {An Introduction to the Bootstrap},
   publisher = {Chapman \& Hall},
   address   = {New York},
-  year      = {1993}
-}
+  year      = {1993},
+  doi       = {10.1201/9780429246593}
+}   % DOI added 2026-08-05.  It resolves to the CRC/Chapman & Hall record,
+    % whose deposited year is the 1994 reissue; the 1993 first edition is
+    % the one cited and the DOI is the only persistent identifier there is.

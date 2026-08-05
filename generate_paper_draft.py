@@ -73,6 +73,7 @@ ABLATION_TABLE = "../outputs/phase6/task13e/pelletizer-I/ablation_table"
 # Searched, in order, for \includegraphics targets.  Mirrors the
 # \graphicspath written into the preamble.
 GRAPHICS_PATHS = [
+    ROOT / "outputs" / "phase7" / "figures",
     ROOT / "outputs" / "phase6" / "figures",
     ROOT / "outputs" / "phase5" / "figures",
     ROOT / "outputs" / "phase4" / "figures",
@@ -125,6 +126,33 @@ PREAMBLE = r"""% ===============================================================
 %  elsarticle requires changing only this preamble, because no section
 %  file uses a class-specific command except \CIRCLE/\LEFTcircle/\Circle
 %  in the related-work table (wasysym) and table* in two places.
+%
+%  ------------------------------------------------------------------
+%  SWITCHING VENUE CLASS.  Three lines change; no section file changes.
+%
+%    IEEE Transactions / IEEE Access
+%      1. \documentclass[journal]{IEEEtran}
+%      2. \bibliographystyle{IEEEtran}
+%      3. delete \usepackage{lmodern} and the geometry line -- IEEEtran
+%         sets its own margins and font, and geometry fights it.
+%      Note: IEEEtran wants \IEEEauthorblockN/\IEEEauthorblockA inside
+%      \author, so the author block below is rewritten, not just filled.
+%
+%    Elsevier (Applied Energy, Energy)
+%      1. \documentclass[preprint,12pt]{elsarticle}
+%      2. \bibliographystyle{elsarticle-num}
+%      3. delete the geometry line; wrap the author block in
+%         \begin{frontmatter}...\end{frontmatter} with \author and
+%         \affiliation, and move \input{abstract} inside it.
+%
+%    Springer (SCIS, LNCS)
+%      1. \documentclass{sn-jnl}  (or {llncs})
+%      2. \bibliographystyle{sn-mathphys}
+%      3. delete geometry and lmodern.
+%
+%  In every case the figures are already sized for a 3.5in single
+%  column and a 7.16in double column, so nothing needs re-rendering.
+%  ------------------------------------------------------------------
 % =====================================================================
 \documentclass[10pt,twocolumn]{article}
 
@@ -144,6 +172,7 @@ PREAMBLE = r"""% ===============================================================
 \newtheorem{proposition}{Proposition}
 
 \graphicspath{%
+  {../outputs/phase7/figures/}%
   {../outputs/phase6/figures/}%
   {../outputs/phase5/figures/}%
   {../outputs/phase4/figures/}%
@@ -155,7 +184,19 @@ PREAMBLE = r"""% ===============================================================
 Energy Elimination: State Inference, Duration Forecasting and
 Optimisation-Based Shutdown Decisions}
 
-\author{}
+% ---------------------------------------------------------------------
+%  AUTHOR BLOCK.  Every FILL_IN below must be replaced before
+%  submission.  `generate_paper_draft.py` counts them and prints the
+%  count on every run; it does not refuse to assemble, because an
+%  unfilled author list is an incomplete submission rather than an
+%  inconsistent document.
+% ---------------------------------------------------------------------
+\author{%
+  FILL\_IN Author Name$^{1}$\thanks{Corresponding author:
+  \texttt{FILL\_IN author@institution.edu}}\\[2pt]
+  \normalsize $^{1}$FILL\_IN Department, FILL\_IN Institution,
+  FILL\_IN City, FILL\_IN Country%
+}
 \date{}
 
 \begin{document}
@@ -163,6 +204,38 @@ Optimisation-Based Shutdown Decisions}
 """
 
 POSTAMBLE = r"""
+% ---------------------------------------------------------------------
+%  BACK MATTER.  Placed before the bibliography, which is where every
+%  target venue puts it.  The data-availability statement is factual as
+%  written except for the FILL_IN items: the code repository and the
+%  IMDELD DOI are checked, the second-site records are not published and
+%  their provenance has to be stated by the author.
+% ---------------------------------------------------------------------
+\section*{Acknowledgements}
+
+FILL\_IN: funding source and grant number, or the sentence ``This
+research received no specific grant from any funding agency in the
+public, commercial, or not-for-profit sectors.'' if unfunded.
+
+\section*{Data Availability}
+
+The IMDELD dataset analysed in Sections~\ref{sec:states}%
+--\ref{sec:crossmachine} is publicly available from IEEE DataPort at
+\url{https://doi.org/10.21227/cg5v-dk02}~\cite{imdeld2018dataset}. All
+experiment code, the stored per-phase outputs from which every table and
+figure in this paper is generated, and the assembly script that builds
+this document are available at
+\url{https://github.com/Ananthvarshan/spark-energy-prediction}. The two
+single-channel second-site records used in
+Section~\ref{sec:crossmachine:dataset} are FILL\_IN: state whether these
+are available on request, under what licence, and from whom.
+
+\section*{Declaration of Competing Interest}
+
+FILL\_IN: ``The authors declare that they have no known competing
+financial interests or personal relationships that could have appeared
+to influence the work reported in this paper.'' -- or the disclosure.
+
 % `plain` is chosen because it ships with every TeX distribution and
 % therefore always builds.  For submission, swap in the venue's style --
 % \bibliographystyle{IEEEtran} or \bibliographystyle{elsarticle-num} --
@@ -183,6 +256,19 @@ CITE_RE = re.compile(r"\\cite[tp]?\*?(?:\[[^\]]*\])*\{([^}]*)\}")
 GRAPHIC_RE = re.compile(r"\\includegraphics(?:\[[^\]]*\])?\{([^}]*)\}")
 BIBKEY_RE = re.compile(r"^@\w+\{([^,]+),", re.MULTILINE)
 PLACEHOLDER_RE = re.compile(r"\bXX\b|\bTODO\b|\bFIXME\b")
+
+# Author name, affiliation, funding, competing-interest and the
+# second-site data provenance cannot be filled in from the repository.
+# They are marked rather than guessed, counted rather than ignored, and
+# deliberately NOT treated as a check failure: an unfilled author list is
+# an incomplete submission, not an inconsistent document, and blocking
+# assembly on it would stop the draft being read.
+FILLIN_RE = re.compile(r"FILL\\?_IN")
+
+# The generated front and back matter is checked like any section file:
+# it carries \ref and \cite, and a dangling one there breaks the build
+# exactly as it would in the body.
+FRONTBACK = "main.tex front/back matter"
 
 
 def strip_comments(text: str) -> str:
@@ -348,6 +434,9 @@ def collect() -> dict:
     for stem in stems:
         _, body = read_body(stem)
         bodies[stem] = body
+    # PREAMBLE and POSTAMBLE are concatenated so \begin{document} and
+    # \end{document} balance; apart they would each report as unclosed.
+    bodies[FRONTBACK] = strip_comments(PREAMBLE + POSTAMBLE)
     return bodies
 
 
@@ -416,7 +505,9 @@ def report(bodies: dict, problems: list[str]) -> None:
     refs = sum(len(REF_RE.findall(b)) for b in bodies.values())
     cites = sum(len(CITE_RE.findall(b)) for b in bodies.values())
     figs = sum(len(GRAPHIC_RE.findall(b)) for b in bodies.values())
-    words = sum(len(b.split()) for s, b in bodies.items() if s != ABLATION_TABLE)
+    skip = {ABLATION_TABLE, FRONTBACK}
+    words = sum(len(b.split()) for s, b in bodies.items() if s not in skip)
+    fillins = sum(len(FILLIN_RE.findall(b)) for b in bodies.values())
 
     print(f"  files      {len(bodies)}")
     print(f"  ~words     {words:,}   (body text, comments stripped)")
@@ -425,6 +516,18 @@ def report(bodies: dict, problems: list[str]) -> None:
     print(f"  citations  {cites}")
     print(f"  figures    {figs}")
     print()
+
+    # Reported, not counted as a problem.  See FILLIN_RE.
+    if fillins:
+        print(f"  {fillins} FILL_IN marker(s) outstanding -- author name and")
+        print("  affiliation, funding, competing-interest declaration, and the")
+        print("  second-site data provenance.  These cannot be filled from the")
+        print("  repository and must be supplied before submission:")
+        for stem, body in sorted(bodies.items()):
+            for n, line in enumerate(body.split("\n"), 1):
+                if FILLIN_RE.search(line):
+                    print(f"    {stem}:{n}: {line.strip()[:64]}")
+        print()
     if problems:
         print(f"  {len(problems)} PROBLEM(S):")
         for p in problems:

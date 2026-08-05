@@ -7,6 +7,33 @@
 %  elsarticle requires changing only this preamble, because no section
 %  file uses a class-specific command except \CIRCLE/\LEFTcircle/\Circle
 %  in the related-work table (wasysym) and table* in two places.
+%
+%  ------------------------------------------------------------------
+%  SWITCHING VENUE CLASS.  Three lines change; no section file changes.
+%
+%    IEEE Transactions / IEEE Access
+%      1. \documentclass[journal]{IEEEtran}
+%      2. \bibliographystyle{IEEEtran}
+%      3. delete \usepackage{lmodern} and the geometry line -- IEEEtran
+%         sets its own margins and font, and geometry fights it.
+%      Note: IEEEtran wants \IEEEauthorblockN/\IEEEauthorblockA inside
+%      \author, so the author block below is rewritten, not just filled.
+%
+%    Elsevier (Applied Energy, Energy)
+%      1. \documentclass[preprint,12pt]{elsarticle}
+%      2. \bibliographystyle{elsarticle-num}
+%      3. delete the geometry line; wrap the author block in
+%         \begin{frontmatter}...\end{frontmatter} with \author and
+%         \affiliation, and move \input{abstract} inside it.
+%
+%    Springer (SCIS, LNCS)
+%      1. \documentclass{sn-jnl}  (or {llncs})
+%      2. \bibliographystyle{sn-mathphys}
+%      3. delete geometry and lmodern.
+%
+%  In every case the figures are already sized for a 3.5in single
+%  column and a 7.16in double column, so nothing needs re-rendering.
+%  ------------------------------------------------------------------
 % =====================================================================
 \documentclass[10pt,twocolumn]{article}
 
@@ -26,6 +53,7 @@
 \newtheorem{proposition}{Proposition}
 
 \graphicspath{%
+  {../outputs/phase7/figures/}%
   {../outputs/phase6/figures/}%
   {../outputs/phase5/figures/}%
   {../outputs/phase4/figures/}%
@@ -37,7 +65,19 @@
 Energy Elimination: State Inference, Duration Forecasting and
 Optimisation-Based Shutdown Decisions}
 
-\author{}
+% ---------------------------------------------------------------------
+%  AUTHOR BLOCK.  Every FILL_IN below must be replaced before
+%  submission.  `generate_paper_draft.py` counts them and prints the
+%  count on every run; it does not refuse to assemble, because an
+%  unfilled author list is an incomplete submission rather than an
+%  inconsistent document.
+% ---------------------------------------------------------------------
+\author{%
+  FILL\_IN Author Name$^{1}$\thanks{Corresponding author:
+  \texttt{FILL\_IN author@institution.edu}}\\[2pt]
+  \normalsize $^{1}$FILL\_IN Department, FILL\_IN Institution,
+  FILL\_IN City, FILL\_IN Country%
+}
 \date{}
 
 \begin{document}
@@ -84,6 +124,38 @@ Optimisation-Based Shutdown Decisions}
 
 % --- Conclusion
 \input{conclusion}
+
+% ---------------------------------------------------------------------
+%  BACK MATTER.  Placed before the bibliography, which is where every
+%  target venue puts it.  The data-availability statement is factual as
+%  written except for the FILL_IN items: the code repository and the
+%  IMDELD DOI are checked, the second-site records are not published and
+%  their provenance has to be stated by the author.
+% ---------------------------------------------------------------------
+\section*{Acknowledgements}
+
+FILL\_IN: funding source and grant number, or the sentence ``This
+research received no specific grant from any funding agency in the
+public, commercial, or not-for-profit sectors.'' if unfunded.
+
+\section*{Data Availability}
+
+The IMDELD dataset analysed in Sections~\ref{sec:states}%
+--\ref{sec:crossmachine} is publicly available from IEEE DataPort at
+\url{https://doi.org/10.21227/cg5v-dk02}~\cite{imdeld2018dataset}. All
+experiment code, the stored per-phase outputs from which every table and
+figure in this paper is generated, and the assembly script that builds
+this document are available at
+\url{https://github.com/Ananthvarshan/spark-energy-prediction}. The two
+single-channel second-site records used in
+Section~\ref{sec:crossmachine:dataset} are FILL\_IN: state whether these
+are available on request, under what licence, and from whom.
+
+\section*{Declaration of Competing Interest}
+
+FILL\_IN: ``The authors declare that they have no known competing
+financial interests or personal relationships that could have appeared
+to influence the work reported in this paper.'' -- or the disclosure.
 
 % `plain` is chosen because it ships with every TeX distribution and
 % therefore always builds.  For submission, swap in the venue's style --

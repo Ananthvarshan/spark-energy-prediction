@@ -146,8 +146,30 @@ GMM--HMM \cite{rabiner1989tutorial}  & $44.5$ & $44.7$ & $13$ & $5/5$ & $84.5$ &
 \end{tabular}
 \end{table}
 
+\begin{figure*}[t]
+\centering
+\includegraphics[width=\textwidth]{fig_p7_state_detection}
+\caption{The same six configurations as
+Table~\ref{tab:state-detection}, plotted. \textbf{(A)} Flicker against
+median dwell. The three filled points share one set of GMM emissions
+and differ only in how those emissions are decoded; the arrows follow
+i.i.d.\ assignment $\rightarrow$ Viterbi $\rightarrow$ Viterbi under a
+minimum-dwell floor. The three squares are alternative emission models
+decoded i.i.d.\ Changing the emission model moves the result within one
+cluster; changing the decoding rule moves it two orders of magnitude in
+dwell and to zero in flicker. \textbf{(B)} Inferred STANDBY hours.
+Spectral clustering assigns $3.6\times$ every other method's total while
+scoring the highest factory-schedule agreement of any row in the table,
+which is why the battery is argued for in preference to any single
+ground-truth-free metric. Hatching marks a failed physics check in both
+panels.}
+\label{fig:state-detection}
+\end{figure*}
+
 \textbf{Choosing a better clustering algorithm buys almost nothing;
-choosing a better sequence model buys everything.} $k$-means, DBSCAN and
+choosing a better sequence model buys everything} ---
+Figure~\ref{fig:state-detection}(A) is the table read as a picture, and
+the two families separate along different axes. $k$-means, DBSCAN and
 the GMM all pass $5/5$ physics checks, agree with the factory schedule
 to within $0.2$ points, and find $4.17$--$4.38$ STANDBY hours on the
 evaluation blocks. Switching from i.i.d.\ assignment to Viterbi decoding
@@ -169,7 +191,8 @@ have confounded the value of temporal decoding with EM initialisation
 luck.
 
 \textbf{Spectral clustering is the one genuine failure, and it is
-instructive.} It assigns $15.01$ STANDBY hours, $3.6\times$ every other
+instructive} (Figure~\ref{fig:state-detection}(B)). It assigns $15.01$
+STANDBY hours, $3.6\times$ every other
 method, with $98.8\%$ binary flicker and a no-load current ratio of
 $0.001$ against the acceptance band $[0.25,0.50]$. It also scores the
 \emph{highest} schedule agreement in the table ($89.0\%$): a partition
@@ -251,7 +274,21 @@ $60$\,s & $0.00$ & $436.5$ & $4/5$ & $5.40$ \\
 \end{tabular}
 \end{table}
 
-The constraint is removing noise, not reshaping the partition: the
+\begin{figure}[t]
+\centering
+\includegraphics[width=\columnwidth]{fig_p7_min_dwell}
+\caption{The minimum-dwell sweep of Table~\ref{tab:min-dwell}.
+\textbf{(A)} Flicker under both definitions collapses to $0.00\%$ at the
+first non-zero floor and stays there. \textbf{(B)} The median dwell
+rises by two orders of magnitude while the inferred STANDBY total is
+flat. The right-hand axis is anchored at zero deliberately: on an
+auto-scaled axis the $1\%$ drift across the whole sweep would render as
+a pronounced trend and say the opposite of what the data says.}
+\label{fig:min-dwell}
+\end{figure}
+
+The constraint is removing noise, not reshaping the partition
+(Figure~\ref{fig:min-dwell}): the
 STANDBY total moves by $0.00$\,h from $0$\,s to $10$\,s and by $1\%$ out
 to $60$\,s, and no physics check changes verdict. Its cost is measured
 directly --- $0.19\%$ of rows relabelled on this machine, $0.15$--$6.1\%$

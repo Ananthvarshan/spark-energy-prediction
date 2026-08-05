@@ -151,7 +151,24 @@ cross-type (target scaler) & $0.374$ & $0.149$ & $44.2$ \\
 \end{tabular}
 \end{table}
 
-\textbf{The contrast with the previous subsection is the point.} The
+\begin{figure*}[t]
+\centering
+\includegraphics[width=\textwidth]{fig_p7_transfer}
+\caption{The two transfer matrices on one axis convention: rows are the
+machine a model was fitted on, columns the machine it was evaluated on,
+and the outlined diagonal is the locally fitted model.
+\textbf{(A)} The decision layer's duration forecaster, raw variant --- no
+target information of any kind, the honest zero-shot condition. Values
+vary down each column far less than across the row, i.e.\ the error is a
+property of the target and barely of the source. \textbf{(B)} The
+sequence state model under its source scaler: a bright diagonal on a
+dark field. \textbf{What transfers here is not machine-specific, and
+what is machine-specific does not transfer.}}
+\label{fig:transfer}
+\end{figure*}
+
+\textbf{The contrast with the previous subsection is the point}, and
+Figure~\ref{fig:transfer} is that contrast in one frame. The
 duration forecaster moved between machines at a $4.8\%$ cost in MAE; the
 sequence model loses $86\%$ of its STANDBY $F_1$ crossing machine types.
 The two results are consistent rather than contradictory, and the
@@ -264,8 +281,26 @@ margin ($\sigma_{\text{OFF}}=234$\,W against
 $\sigma_{\text{STANDBY}}=229$\,W). The framework reports $42$\,h of
 recoverable ``standby'' on a device that cannot be shut down.
 
+\begin{figure*}[t]
+\centering
+\includegraphics[width=\textwidth]{fig_p7_cross_dataset}
+\caption{Why the negative control nearly passes. \textbf{(A)} The five
+physics checks on the four-channel reference machine and on the two
+single-channel second-site records. C3 and C4 are the only two checks
+independent of power magnitude --- hence the only two that can separate
+energised idle from a lightly loaded productive state --- and they are
+exactly the two that a single-channel record cannot evaluate. The
+control fails on the one remaining discriminating check, and by a $2\%$
+margin. \textbf{(B)} What the battery is left with: the photovoltaic
+inverter is productive $0.0\%$ of the time at night, which no driven
+load is. That the rejection rests on a diurnal signal rather than a
+physical one is the finding.}
+\label{fig:crossdataset-checks}
+\end{figure*}
+
 \textbf{This is the central cross-dataset finding, and it is a
-limitation of the method rather than of the data.} On a single-channel
+limitation of the method rather than of the data}
+(Figure~\ref{fig:crossdataset-checks}). On a single-channel
 record the state model still produces states and the decision layer
 still consumes them, but the physics validation has lost most of its
 discriminating power --- and it is the physics validation that

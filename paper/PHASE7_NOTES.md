@@ -290,41 +290,149 @@ them.
 
 ---
 
+---
+
+## Task 14F — closing the four gaps left open above
+
+The four items this note originally listed as outstanding are now
+three-and-a-bit closed. What follows replaces the "what is not done"
+list as it stood; the residue is at the bottom and is real.
+
+### The five table-only results now have figures
+
+`experiments/make_figures_phase7.py` renders them from the same stored
+outputs the tables are typeset from — it fits nothing and refits
+nothing — at the Phase VI conventions: IEEE column widths placed at
+100%, no suptitle, PDF **and** PNG, `pdf.fonttype = 42`, and nothing
+encoded by hue alone.
+
+| Figure | Carries | Section |
+|---|---|---|
+| `fig_p7_state_detection` | flicker vs dwell, decoding path as a trajectory; STANDBY hours exposing spectral | `state_layer.tex` §4.2 |
+| `fig_p7_min_dwell` | the sweep: flicker collapses, nothing else moves | `state_layer.tex` §4.3 |
+| `fig_p7_economic_plane` | break-even, saving, energy, with the zero contour | `decision_layer.tex` §6.6 |
+| `fig_p7_transfer` | both 8×8 matrices on one axis convention | `crossmachine.tex` §9.1–9.2 |
+| `fig_p7_cross_dataset` | the physics battery check-by-check, and what it fell back on | `crossmachine.tex` §9.3 |
+
+Each is drawn to carry the claim the surrounding prose makes rather
+than to reproduce the table. Three are worth naming:
+
+- **State detection is a trajectory, not a bar chart.** The three
+  decoding configurations share one set of GMM emissions and differ
+  only in how they are decoded, so drawing them as connected points
+  over flicker × dwell makes "the emission model barely matters, the
+  decoding rule matters entirely" a shape rather than a sentence.
+- **The two transfer matrices are one figure.** §9.1 and §9.2 argue a
+  *contrast*, and the contrast only lands side by side: panel A varies
+  down its columns and barely across its rows, panel B is a bright
+  diagonal on a dark field.
+- **The cross-dataset figure is a status grid, not scores.** The
+  finding is *which checks were unavailable*, and a bar chart of the
+  surviving scores hides precisely that. C3 and C4 are boxed because
+  they are the only two independent of power magnitude.
+
+Two rendering bugs were found and fixed while checking the output, both
+of which would have shipped silently: `subplots_adjust` called after
+`fig.colorbar(..., ax=ax)` moves the panels out from under their own
+colorbars (now `constrained_layout`), and a short vertical colorbar
+label sits close enough to the next panel to read as *that* panel's
+y-axis label (units moved into the titles).
+
+### The bibliography is verified
+
+`experiments/verify_bibliography.py` resolves every DOI against
+Crossref — with a DataCite fallback, because the IEEE DataPort dataset
+deposit is not in Crossref and 404s there — and compares title, year,
+volume, issue and pages field by field. **47 of 47 now match; it exits
+non-zero on any mismatch or unresolvable DOI.**
+
+Five entries were wrong:
+
+| Entry | What was wrong |
+|---|---|
+| `holmegaard2016industrial` | **the DOI resolved to a different paper** (…7501697 is Guo & Singh on IoT service levels; the right one is …7501709) |
+| `imdeld2018dataset` | **wrong author list** — named J. G. R. C. Gomes, who authored the *paper* but did not deposit the *dataset*, and omitted three depositors |
+| `campello2015hdbscan` | page range (`5:1--5:51` → `1--51` + `articleno`) |
+| `karlin1988competitive` | issue (`1` → `1--4`) |
+| `albers2003online` | issue (`1--2` → `1`) |
+
+and three gained a DOI they should always have carried
+(`dempster1977em`, `zhang2018seq2point`, `efron1993bootstrap`).
+
+The first two are the ones that mattered: a DOI pointing at someone
+else's paper and a misattributed dataset are both errors a referee
+finds in one click, and neither was among the fields the `% VERIFY`
+markers flagged as suspect. **The markers were pointing at the wrong
+things** — they warned about volume and page numbers, which were almost
+all correct, and said nothing about the two entries that were actually
+broken. That is an argument for checking mechanically rather than for
+checking what you remember being unsure about.
+
+Four apparent mismatches were the checker's fault, not the bib's, and
+each needed a rule: Crossref titles carry JATS markup (`<i>EM</i>`
+normalises to "i em i" unless tags are stripped first); ACM deposits
+the subtitle separately, so "XGBoost: A Scalable Tree Boosting System"
+is deposited as the bare word "XGBoost"; issue *ranges* are `18--19` in
+BibTeX and `18-19` at Crossref; and a print/online year split of one
+year is routine. Authors are compared on surname sets and reported as
+a note, never a mismatch, because accent deposition is too inconsistent
+to fail on.
+
+`dempster1977em` is worth one line: the range everyone cites is
+`1--38`, which includes the printed discussion. The publisher record
+for the paper itself is `1--22`, and that is what the DOI shows.
+
+### Front and back matter, and the venue switch
+
+Both went into `generate_paper_draft.py`, not into `main.tex` — the
+file says "GENERATED … do not edit by hand" at the top and the next run
+would have discarded them. The preamble now carries an author block, and
+the postamble an acknowledgements, data-availability and
+competing-interest section, all before the bibliography where every
+target venue puts them. The preamble also documents the exact three-line
+change for IEEEtran, elsarticle and Springer, including the two that
+need the author block restructured rather than merely filled.
+
+The generated front and back matter is now **checked like a section
+file** — it carries three `\ref`s and a `\cite`, and a dangling one
+there breaks the build exactly as it would in the body.
+
+Nine `FILL_IN` markers remain, and they are **counted and listed on
+every run but do not fail the check**. An unfilled author list is an
+incomplete submission, not an inconsistent document, and refusing to
+assemble over it would stop the draft being read. They are: author name,
+affiliation and email; funding; the competing-interest declaration; and
+the licence and provenance of the two second-site records. None can be
+filled from the repository.
+
 ## The draft as it stands
 
-23,223 words of body text, 107 labels, 163 cross-references, 98 citations
-over 63 bibliography entries, 10 figures, 18 table floats (plus 4 small
-inline tabulars). Thirteen sections and 53 subsections, plus abstract.
+23,805 words of body text, 112 labels, 174 cross-references, 99
+citations over 63 bibliography entries, **15 figures**, 18 table floats
+(plus 4 small inline tabulars). Thirteen sections and 53 subsections,
+plus abstract, acknowledgements, data availability and competing
+interests.
 
-## What is not done, and what a reviewer will still ask
+## What is still not done
 
-- **It has not been compiled.** No TeX on this machine. Six static checks
-  pass; that is a weaker statement and is made as one. First build
-  elsewhere should be expected to surface float placement and
-  column-width issues, particularly the two `table*` environments and the
+- **It has not been compiled.** No TeX on this machine. Six static
+  checks pass; that is a weaker statement and is made as one. First
+  build elsewhere should be expected to surface float placement and
+  column-width issues, particularly the four `figure*` environments
+  added in this phase, the two `table*` environments, and the
   eight-column related-work table.
-- **The bibliography is unverified.** `PHASE1_NOTES.md` lists fourteen
-  entries whose volume/page/DOI fields were written from domain knowledge
-  and carry `% VERIFY` comments; the four entries added in this phase
-  have the same status. `grep -n "VERIFY" paper/references.bib`. This is
-  a referee-visible class of error and it is still outstanding.
+- **Nine `FILL_IN` markers**, listed above. These are the only thing
+  between the current draft and a submittable one.
+- **One bibliography entry cannot be machine-checked.**
+  `gutowski2006electrical` — the 13th CIRP LCE proceedings were never
+  assigned DOIs. Author, title, venue and year are certain; only the
+  page range is from secondary sources. It carries the sole remaining
+  `% VERIFY`. Fifteen further entries have no DOI because none was ever
+  registered (ISO/IEC standards, JMLR, and the NeurIPS/AAAI/KDD/ICLR
+  proceedings of their era); those fields are not in doubt.
 - **No sustainability or deployment analysis.** Phases VII and VIII of
   the improvement plan (kWh/CO₂/ROI quantification; edge-deployment
   latency and architecture) are not in this draft. The economic material
   that does exist is in the decision layer and the multi-machine section,
   and the facility total — under 90 USD/yr — is what a sustainability
   section would have to start from.
-- **No author list, affiliations, acknowledgements, data-availability
-  statement or venue template.** `main.tex` uses a neutral `article`
-  class and `plain` bibliography style so it builds anywhere; switching
-  to IEEEtran or elsarticle is a preamble change only, by construction.
-- **All ten figures come from Phase VI**, i.e. all are PDF with embedded
-  fonts at IEEE column widths. That is good for the build and bad for
-  the argument: it means several results are carried by tables with no
-  figure at all — the state-detection comparison, the minimum-dwell
-  sweep, the economic plane, and both transfer matrices. Those figures
-  exist under `outputs/phase2`–`phase4`, but as screen-resolution PNGs
-  without the sizing and monochrome-safety conventions
-  `make_figures_phase6.py` applies. Re-rendering them and placing four
-  or five of them is the highest-value remaining presentation work, and
-  the checker will flag each one the moment it is referenced.
